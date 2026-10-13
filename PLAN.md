@@ -35,7 +35,7 @@ A Spotify client in the style of a 90s desktop utility (think Win98 CD Player / 
                   VU meters ◄── parec monitor, 8 kHz mono, only while visible+playing
 ```
 
-- **librespot**: a headless Spotify Connect device named "TAPEDECK". It handles login and decoding (`--backend pulseaudio --bitrate 160`, 320 optional). It pushes events to tapedeck through an `--onevent` hook, so tapedeck never polls.
+- **librespot**: a headless Spotify Connect device named "TAPEDECK". It handles login and decoding (`--backend pipe | pacat` (no libpulse-dev needed), `--bitrate 160`, 320 optional). It pushes events to tapedeck through an `--onevent` hook, so tapedeck never polls.
 - **tapedeck UI**: one cairo `DrawingArea` for the deck plus a GTK list for the drawer, themed with GTK CSS. The playback position is counted forward locally and resynced on each librespot event.
 - **Spotify Web API**: PKCE OAuth with a personal developer app (no client secret). Tokens go in `~/.config/haven/tapedeck/`. It's used for search, playlists, liked songs, the queue and playback control.
 - **Cache**: `~/.cache/haven/tapedeck/` holds album art downscaled to 64 px and dithered to the deck palette, plus playlist metadata as JSON.
@@ -59,14 +59,15 @@ A Spotify client in the style of a 90s desktop utility (think Win98 CD Player / 
 Menu accelerators (`Tape → &Play  Space`) plus: `space` play/pause · `h`/`l` prev/next · `H`/`L` seek ±10 s · `+`/`-` volume · `e` eject (drawer) · `/` search · `?` manual
 
 ## Milestones
-0. **Setup**: build librespot (`cargo install librespot`, a one-time ~30–40 min compile on this CPU) and create a Spotify developer app (client ID, redirect `http://127.0.0.1:8898/callback`).
-1. **Engine**: librespot runs as the "TAPEDECK" device, plus a Python Web API client with PKCE and token refresh. Test from the command line: search → play → pause.
+0. ✅ **Setup** (2026-10-13): build librespot (`cargo install librespot`, a one-time ~30–40 min compile on this CPU) and create a Spotify developer app (client ID, redirect `http://127.0.0.1:8898/callback`).
+1. ✅ **Engine** (2026-10-13): librespot runs as the "TAPEDECK" device, plus a Python Web API client with PKCE and token refresh. Test from the command line: search → play → pause.
 2. **Deck**: window with menu bar, toolbar and status bar; draw the display in cairo; wire up the transport and LCD counter, connect the event hook.
 3. **Drawer**: playlists and liked songs as cassettes, search, the queue.
 4. **Life**: spinning reels, real VU meters, dithered J-card art, MacBook media keys via MPRIS.
 5. **Ship**: `.desktop` entry, librespot user service, measure against the budget and record the numbers in the README.
 
 ## Caveats
+- **Development-mode API limits (verified 2026-10-13):** playlist track lists can only be read for playlists the user **owns**. Followed playlists return 403, but they can still be *played* by context URI. Show them as "sealed cassettes" whose tracklist fills in from librespot `track_changed` events. Search returns at most 10 results per request.
 - Spotify Premium is required (librespot and Web API playback control both need it).
 - librespot is unofficial. It is widely used, but technically outside Spotify's ToS.
 - A developer app in development mode is limited to a few allowlisted users, which is fine for personal use.

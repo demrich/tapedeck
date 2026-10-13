@@ -1,0 +1,11 @@
+#!/bin/sh
+# Called by librespot for each player event; env vars carry the details.
+RUN="${XDG_RUNTIME_DIR:-/tmp}/tapedeck"
+{
+  printf 'event=%s' "${PLAYER_EVENT:-}"
+  for v in TRACK_ID URI NAME ARTISTS ALBUM DURATION_MS POSITION_MS VOLUME COVERS; do
+    eval "val=\${$v:-}"
+    [ -n "$val" ] && printf '\t%s=%s' "$v" "$(printf %s "$val" | tr '\t\n' '  ')"
+  done
+  printf '\n'
+} >> "$RUN/events"

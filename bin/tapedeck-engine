@@ -1,0 +1,23 @@
+#!/bin/sh
+# TAPEDECK engine: librespot (Spotify Connect device) -> raw PCM -> PulseAudio.
+# Player events are appended to $EVENTS as key=value lines; the UI watches it with inotify.
+set -eu
+RUN="${XDG_RUNTIME_DIR:-/tmp}/tapedeck"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/haven/tapedeck/librespot"
+BITRATE="${TAPEDECK_BITRATE:-160}"
+mkdir -p "$RUN" "$CACHE"
+: > "$RUN/events"
+exec "$HOME/.cargo/bin/librespot" \
+    --name TAPEDECK \
+    --device-type speaker \
+    --backend pipe \
+    --bitrate "$BITRATE" \
+    --cache "$CACHE" \
+    --disable-audio-cache \
+    --enable-oauth \
+    --disable-discovery \
+    --initial-volume 70 \
+    --enable-volume-normalisation \
+    --onevent "$(dirname "$(readlink -f "$0")")/tapedeck-onevent" \
+  | pacat --raw --format=s16le --rate=44100 --channels=2 \
+          --client-name=TAPEDECK --stream-name=TAPEDECK --latency-msec=200
