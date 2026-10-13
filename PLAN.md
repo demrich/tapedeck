@@ -1,17 +1,24 @@
 # TAPEDECK — plan
 
-A Spotify client shaped like a cassette deck. Mood: **cassette futurism**. Form: fixed-size skinned hardware deck, with the library in a pull-out drawer.
+A Spotify client in the style of a 90s desktop utility (think Win98 CD Player / Media Player 6.4, with a cassette deck as the display). It **uses the system theme** (IndigoMagic + SE98 icons), so its chrome matches the rest of the desktop. Only the deck display is custom-drawn.
 
 ```
-┌─ TAPEDECK ─────────────── ▪ ✕ ┐
-│  ◎━━━━━━━━━━━━━━━━━◎   TYPE II │   reels spin only while playing; the tape
-│  [SIDE A] NIGHTCALL  ▶ 02:41   │   moves from the left reel to the right as the track plays
-│  L ▮▮▮▮▮▮▯▯  R ▮▮▮▮▮▯▯▯        │   real VU meters (measured from audio output)
-│ [⏮][⏪][▶][⏸][⏩][⏭]  [EJECT] │   EJECT = open the cassette drawer
-├────────────────────────────────┤
-│ ▶ 01 Nightcall .......... 4:18 │   drawer: playlists = cassettes with J-cards
-│   02 Resonance .......... 3:32 │
-└────────────────────────────────┘
+┌─ TAPEDECK - Nightcall ───────────────── _ □ X ┐   xfwm4 IndigoMagic frame
+│ File  Tape  View  Help                         │   GTK menu bar (themed)
+│ ┌────────────────────────────────────────────┐ │
+│ │  ◎═════════════◎  [SIDE A]   ▶ 02:41/4:18  │ │   sunken black display, cairo:
+│ │  NIGHTCALL - KAVINSKY          TYPE II     │ │   spinning reels, green LCD,
+│ │  L ▮▮▮▮▮▮▯▯▯▯   R ▮▮▮▮▮▯▯▯▯▯               │ │   real VU meters
+│ └────────────────────────────────────────────┘ │
+│ [⏮][⏪][▶][⏸][⏹][⏩][⏭]  ──●──── vol  [⏏]   │   stock GTK buttons, SE98 icons
+├────────────────────────────────────────────────┤
+│ Cassette: Night Drive ▾                        │   drawer (GtkRevealer) opened by ⏏
+│ #  Title                Artist          Time   │   GtkTreeView: yellow selection
+│ 1  Nightcall            Kavinsky        4:18   │   comes from the theme
+│ 2  Resonance            HOME            3:32   │
+├────────────────────────────────────────────────┤
+│ Ready             │ TAPEDECK device │ 160 kbps │   sunken status bar panels
+└────────────────────────────────────────────────┘
 ```
 
 ## Architecture
@@ -43,15 +50,18 @@ A Spotify client shaped like a cassette deck. Mood: **cassette futurism**. Form:
 | CPU playing, minimized | < 3 % (librespot only) |
 
 ## Look
-Putty `#d8cfc0` body, charcoal `#2b2b2b` tape window, amber `#ffb000` segmented LCD, orange `#ff6a13` REC/warning accents, chunky beveled transport keys. Pixel fonts: VT323 for the LCD and Silkscreen for labels. Flavor text: "REWINDING TAPE…", "INSERT CASSETTE", "HEAD CLEANING REQUIRED" (network error).
+- Window chrome, menus, buttons, list and status bar are **stock GTK and inherit IndigoMagic**. Icons come from SE98 by freedesktop name (`media-playback-start`, `media-eject`, …).
+- The only custom-drawn widget is the deck display: a sunken 2 px bevel around a black display with green `#00FF00` LCD digits (VT323), dark-gray tape reels, and VU meters running green → yellow → red. The bevel colors are read from the GTK style context.
+- Album art appears as a small square in the display, dithered to 16 colors (period-correct).
+- Flavor: "REWINDING TAPE…", "INSERT CASSETTE", and on a network error, a Win98-style dialog: "TAPEDECK has encountered a problem: HEAD CLEANING REQUIRED".
 
 ## Keys
-`space` play/pause · `h`/`l` prev/next · `H`/`L` seek ±10 s · `+`/`-` volume · `e` eject (drawer) · `/` search · `?` manual
+Menu accelerators (`Tape → &Play  Space`) plus: `space` play/pause · `h`/`l` prev/next · `H`/`L` seek ±10 s · `+`/`-` volume · `e` eject (drawer) · `/` search · `?` manual
 
 ## Milestones
 0. **Setup**: build librespot (`cargo install librespot`, a one-time ~30–40 min compile on this CPU) and create a Spotify developer app (client ID, redirect `http://127.0.0.1:8898/callback`).
 1. **Engine**: librespot runs as the "TAPEDECK" device, plus a Python Web API client with PKCE and token refresh. Test from the command line: search → play → pause.
-2. **Deck**: draw the static deck in cairo, wire up the transport and LCD counter, connect the event hook.
+2. **Deck**: window with menu bar, toolbar and status bar; draw the display in cairo; wire up the transport and LCD counter, connect the event hook.
 3. **Drawer**: playlists and liked songs as cassettes, search, the queue.
 4. **Life**: spinning reels, real VU meters, dithered J-card art, MacBook media keys via MPRIS.
 5. **Ship**: `.desktop` entry, librespot user service, measure against the budget and record the numbers in the README.
