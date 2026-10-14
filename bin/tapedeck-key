@@ -1,0 +1,15 @@
+#!/bin/sh
+# Media key -> MPRIS. Bound in xfce4-keyboard-shortcuts (XF86AudioPlay/Next/Prev/Stop).
+# Sends to TAPEDECK when it runs, else to the first other MPRIS player on the session bus.
+# Usage: tapedeck-key PlayPause|Next|Previous|Stop
+set -eu
+dest=org.mpris.MediaPlayer2.tapedeck
+names=$(gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+        --method org.freedesktop.DBus.ListNames)
+case "$names" in
+  *"'$dest'"*) ;;
+  *) dest=$(printf '%s' "$names" | tr ',' '\n' | grep -o "org\.mpris\.MediaPlayer2\.[^']*" | head -n1) ;;
+esac
+[ -n "$dest" ] || exit 0
+exec gdbus call --session --dest "$dest" --object-path /org/mpris/MediaPlayer2 \
+     --method "org.mpris.MediaPlayer2.Player.$1" > /dev/null

@@ -1,6 +1,6 @@
 # tapedeck
 
-Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassette-deck display. Status: **deck + drawer + browsing work**: playlists, Liked Songs, search, the queue, artist and album pages, artist radio and album art on the display (animations, VU meters and media keys next). See [PLAN.md](PLAN.md).
+Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassette-deck display. Status: **deck + drawer + browsing + life work**: playlists, Liked Songs, search, the queue, artist and album pages, artist radio, album art on the display, spinning reels, real VU meters, MPRIS and media keys (packaging next). See [PLAN.md](PLAN.md).
 
 ## Setup
 1. librespot: `cargo install librespot --version 0.8.0 --locked --no-default-features --features rustls-tls-native-roots`
@@ -20,6 +20,15 @@ Press `A` or `B` on a track, or click the artist line or the J-card on the displ
 
 Spotify withholds top tracks, related artists, recommendations and radio (`spotify:station:`) from development-mode apps. TAPEDECK gets those from **Deezer's public API** (no key, no account) and matches each song back to Spotify by search. A match must agree on the artist and the title; a song Spotify doesn't have is dropped rather than replaced by a wrong one (typically 22–25 of 25 radio tracks match). Starting radio takes about 4 s. Started from the song in the deck, the song keeps playing and the station follows. The engine also runs with `--autoplay on`, so when a tape ends, Spotify keeps playing similar music.
 
+## Life
+- **Reels** turn at the speed of real tape (4.76 cm/s), so the nearly empty reel spins faster than the full one, and both spin backwards while the tape is loading. 10 fps; `TAPEDECK_FPS=15` for smoother reels.
+- **VU meters** show TAPEDECK's own stream, not the system mix: `parec --monitor-stream` on the engine's sink input, at 8 kHz. The level is corrected for librespot's volume, so the meters show the level on the tape, like a real deck. 24 segments from -36 dB to 0 dB, rising at once and falling over about 0.6 s.
+- Reels, meters and parec only run while the tape plays in a visible window. When paused, minimized or on another workspace, the UI uses no CPU and parec isn't running.
+- The display renders into a client-side image, and animation frames redraw only the reels and meter bars. Drawing straight to the window made Xorg rasterize every arc.
+
+## Media keys and MPRIS
+TAPEDECK is an MPRIS player (`org.mpris.MediaPlayer2.tapedeck`). Media keys, Bluetooth headphone buttons (through `mpris-proxy`) and MPRIS applets see the track, cover and position, and can play, pause, skip, seek and set the volume. The MacBook's F7/F8/F9 (XF86AudioPrev/Play/Next, plus Stop) are bound in xfce4-keyboard-shortcuts to `bin/tapedeck-key`, which sends to TAPEDECK, or to another MPRIS player when TAPEDECK isn't running. The shortcuts file from before the binding is backed up in `~/.local/share/xfce-keys-backup/`.
+
 ## Remote control
 D-Bus actions for hotkeys and scripts: `play-pause next previous stop eject artist album radio`, e.g.
 `gdbus call --session --dest cc.haunts.haven.tapedeck --object-path /cc/haunts/haven/tapedeck --method org.gtk.Actions.Activate next [] {}`
@@ -38,5 +47,8 @@ D-Bus actions for hotkeys and scripts: `play-pause next previous stop eject arti
 | tapedeck UI, playing, visible | 71 MB | 0.35 % |
 | tapedeck UI, playing, drawer open, 697 rows | 78 MB | 0.30 % |
 | tapedeck UI 0.4, playing, J-card art, radio page open | 78 MB | 0.56 % |
+| tapedeck UI 0.5, playing, visible, reels + VU at 10 fps | 78 MB | 4.0 % (+ Xorg 3.2 %, xfwm4 1.0 %, parec 0.1 %) |
+| tapedeck UI 0.5, paused, or minimized | 78 MB | 0 % |
+| librespot (same 30 s window, 0.5) | | 3.9 % |
 
-The window maps 0.7 s after launch. UI RSS is just over the 70 MB target, mostly GTK at 2x HiDPI scale. Check again after milestone 4.
+The window maps 0.7 s after launch. UI RSS is just over the 70 MB target, mostly GTK at 2x HiDPI scale. With animation, the visible-and-playing total is ~8 % for the UI side. Most of it is GTK's per-frame overhead, not drawing (a frame draws in about 1 ms). At 15 fps it was ~9 %; drawing straight to the X window cost ~12 % at 15 fps. Minimize the deck, or move it to another workspace, and the cost drops to 0.

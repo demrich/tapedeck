@@ -16,6 +16,9 @@ LCD = (0.0, 1.0, 0.0)        # #00FF00 lit segment
 LCD_MID = (0.0, 0.62, 0.0)   # secondary text
 LCD_DIM = (0.0, 0.32, 0.0)   # outlines, tape pack
 LCD_GHOST = (0.0, 0.11, 0.0) # unlit "88:88" segments
+VU_YEL = (1.0, 1.0, 0.0)
+VU_RED = (1.0, 0.0, 0.0)
+VU_SEGS = 24
 FONT = "VT323"
 
 _fonts = {}
@@ -68,6 +71,8 @@ class Tape:
         self._pos_at = time.monotonic()
         self.volume = None       # 0..100
         self.art = None          # cairo surface of the dithered cover (art.py), or None
+        self.angles = [0.0, 0.0] # reel rotation (radians), advanced by Deck.animate
+        self.vu = None           # (left, right) levels 0..1 while the meters run, else None
 
     def set_pos(self, ms):
         self._pos = int(ms)
@@ -117,23 +122,30 @@ def _reel(cr, cx, cy, pack_r, angle):
     cr.stroke()
 
 
-def _cassette(cr, x, y, w, h, progress, angle, label):
+def reel_radii(h, w, progress):
+    """Pack radii (supply, take-up) for a cassette of this size; area-proportional to the tape left."""
+    wh = h - 40
+    rh, rmax = 10, min(wh / 2 - 2, (w - 40) / 4)
+    return (math.sqrt(rh * rh + (rmax * rmax - rh * rh) * (1 - progress)),
+            math.sqrt(rh * rh + (rmax * rmax - rh * rh) * progress))
+
+
+def _cassette(cr, x, y, w, h, progress, angles, label):
     cr.set_line_width(1)
     cr.set_source_rgb(*LCD_DIM)
     cr.rectangle(x + 0.5, y + 0.5, w - 1, h - 1)  # shell
     cr.stroke()
-    _text(cr, x + 6, y + 2, label, 16, LCD_MID, width=w - 12)
+    if label:
+        _text(cr, x + 6, y + 2, label, 16, LCD_MID, width=w - 12)
     # window with the two packs: area-proportional radii, supply (left) empties as the track plays
     wy, wh = y + 22, h - 40
     cr.rectangle(x + 14.5, wy + 0.5, w - 29, wh)
     cr.stroke()
-    rh, rmax = 10, min(wh / 2 - 2, (w - 40) / 4)
     cy = wy + wh / 2
     lx, rx = x + w * 0.3, x + w * 0.7
-    rl = math.sqrt(rh * rh + (rmax * rmax - rh * rh) * (1 - progress))
-    rr = math.sqrt(rh * rh + (rmax * rmax - rh * rh) * progress)
-    _reel(cr, lx, cy, rl, angle)
-    _reel(cr, rx, cy, rr, angle)
+    rl, rr = reel_radii(h, w, progress)
+    _reel(cr, lx, cy, rl, angles[0])
+    _reel(cr, rx, cy, rr, angles[1])
     # head opening at the bottom edge
     by = y + h - 12
     cr.set_source_rgb(*LCD_DIM)
@@ -167,18 +179,57 @@ def _jcard(cr, x, y, s, surf):
     cr.restore()
 
 
-def draw(cr, w, h, tape, angle=0.0, bitrate="160"):
+CASSETTE = (8, 8, 150)   # x, y, width; height is the display height - 16
+JCARD = 108              # 52 px cover at exactly 2x, plus a 2 px frame
+
+
+def regions(w, h):
+    """Rectangles redrawn by the animation timer: the cassette window (reels) and the meter bars."""
+    x, y, cw = CASSETTE
+    x0, right = 170, w - JCARD - 18
+    return [(x + 14, y + 22, cw - 28, h - 16 - 40 + 2), (x0 + 12, h - 31, right - x0 - 12, 15)]
+
+
+VU_ZONES = ((0, round(VU_SEGS * 0.7), LCD), (round(VU_SEGS * 0.7), round(VU_SEGS * 0.88), VU_YEL),
+            (round(VU_SEGS * 0.88), VU_SEGS, VU_RED))
+
+
+def _vu(cr, x, y, w, level, label):
+    """One meter: L/R label and VU_SEGS segments, green to yellow to red, unlit ones ghosted.
+    One fill per colour: this runs every animation frame."""
+    if label:
+        _text(cr, x, y - 6, label, 16, LCD_MID)
+    x += 12
+    seg = (w - 12) / VU_SEGS
+    lit = round(level * VU_SEGS)
+    for a, b, rgb in VU_ZONES + ((lit, VU_SEGS, LCD_GHOST),):
+        if rgb is not LCD_GHOST:
+            b = min(b, lit)
+        for i in range(a, b):
+            cr.rectangle(round(x + i * seg), y, max(1, round(seg) - 2), 5)
+        cr.set_source_rgb(*rgb)
+        cr.fill()
+
+
+def draw(cr, w, h, tape, bitrate="160"):
     cr.set_source_rgb(0, 0, 0)
     cr.paint()
 
-    side = "SIDE A"
-    _cassette(cr, 8, 8, 150, h - 16, tape.progress(), angle, f"{side}  C-90")
-    js = h - 16
-    _jcard(cr, w - 8 - js, 8, js, tape.art)
-
     x0 = 170
-    right = w - js - 18
+    right = w - JCARD - 18
     tw = right - x0
+    # animation frames clip to regions(): then only the reels and meter bars are worth drawing
+    full = cr.in_clip(x0 + 4, 40)
+
+    cx, cy, cw_ = CASSETTE
+    _cassette(cr, cx, cy, cw_, h - 16, tape.progress(), tape.angles, full and "SIDE A  C-90")
+    vl, vr = tape.vu or (0, 0)    # live levels while playing, ghost segments otherwise
+    _vu(cr, x0, h - 31, tw, vl, full and "L")
+    _vu(cr, x0, h - 21, tw, vr, full and "R")
+    if not full:
+        return
+    _jcard(cr, w - 8 - JCARD, (h - JCARD) // 2, JCARD, tape.art)
+
     word = {"play": "PLAY", "pause": "PAUSE", "stop": "STOP", "load": "REWINDING TAPE..."}[tape.mode]
     _shape(cr, tape.mode, x0, 10, 12)
     _text(cr, x0 + (28 if tape.mode == "load" else 18), 4, word, 20, LCD)
@@ -200,7 +251,7 @@ def draw(cr, w, h, tape, angle=0.0, bitrate="160"):
         _text(cr, x0, 82, "PRESS PLAY OR EJECT [E]", 18, LCD_MID, width=tw)
 
     # tape counter bar
-    by = h - 12
+    by = h - 10
     cr.set_line_width(1)
     cr.set_source_rgb(*LCD_DIM)
     cr.rectangle(x0 + 0.5, by + 0.5, tw - 1, 5)

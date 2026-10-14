@@ -5,6 +5,7 @@ watched with inotify (GFileMonitor). The Web API is only called on user actions,
 worker threads (one lane each for transport, library loads and cover art), so the UI thread
 never blocks on the network.
 """
+import math
 import os
 import queue
 import signal
@@ -12,16 +13,17 @@ import subprocess
 import threading
 import time
 
+import cairo
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import art, display, spotify
+from . import art, display, mpris, spotify, vu
 from .drawer import Drawer
 
-VERSION = "0.4"
+VERSION = "0.5"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(ROOT, "bin", "tapedeck-engine")
 RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "tapedeck")
@@ -29,6 +31,9 @@ EVENTS = os.path.join(RUN_DIR, "events")
 BITRATE = os.environ.get("TAPEDECK_BITRATE", "160")
 DEVICE = "TAPEDECK"
 SEEK_MS = 10_000
+FPS = int(os.environ.get("TAPEDECK_FPS", 10))  # reels + meters (15 costs ~2 % more CPU, mostly Xorg)
+TAPE_PX_S = 43               # 4.76 cm/s past the head, in display pixels (hub radius 10 px = 11 mm)
+REWIND = -8                  # reel speed while REWINDING TAPE... (loading), as a multiple of play
 
 KEYS = [
     ("Space", "Play / Pause"),
@@ -45,6 +50,7 @@ KEYS = [
     ("Backspace", "Back to the previous page"),
     ("Esc", "Leave the search box"),
     ("?", "This card"),
+    ("Media keys", "Play/pause, previous, next (MPRIS)"),
     ("Ctrl+Q", "Exit"),
 ]
 
@@ -80,6 +86,12 @@ class Deck(Gtk.ApplicationWindow):
         # transport never waits behind a big load, and covers never wait behind either
         self.lanes = {"ctl": queue.Queue(), "lib": queue.Queue(), "art": queue.Queue()}
         self.art_url = None
+        self.meter = vu.Meter()
+        self.anim_id = 0
+        self.anim_at = 0.0
+        self.meter_try = 0.0
+        self.mpris = None
+        self.seeked = False
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(box)
@@ -90,9 +102,9 @@ class Deck(Gtk.ApplicationWindow):
 
         frame = Gtk.Frame(shadow_type=Gtk.ShadowType.IN)   # theme draws the sunken bevel
         self.lcd = Gtk.DrawingArea()
-        self.lcd.set_size_request(480, 120)
-        self.lcd.connect("draw", lambda a, cr: display.draw(
-            cr, a.get_allocated_width(), a.get_allocated_height(), self.tape, bitrate=BITRATE))
+        self.lcd.set_size_request(480, 140)
+        self.lcd_buf = None
+        self.lcd.connect("draw", self._draw_lcd)
         self.lcd.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.lcd.connect("button-press-event", self._on_lcd_click)
         self.lcd.set_tooltip_text("Click: title → artist, cover → album")
@@ -108,6 +120,8 @@ class Deck(Gtk.ApplicationWindow):
 
         self.connect("key-press-event", self._on_key)
         self.connect("window-state-event", self._on_window_state)
+        self.connect("map-event", lambda *a: self._set_hidden(False))
+        self.connect("unmap-event", lambda *a: self._set_hidden(True))   # other workspace
         self.connect("delete-event", lambda *a: self.quit() or True)
 
     # --- widgets -----------------------------------------------------------
@@ -231,11 +245,14 @@ class Deck(Gtk.ApplicationWindow):
         self.online = online
         self.st_dev.set_text(f"{DEVICE}: {'online' if online else 'offline'}")
 
-    def refresh(self):
+    def refresh(self, seeked=False):
         t = self.tape
         self.set_title(f"TAPEDECK - {t.name}" if t.name else "TAPEDECK")
         self.lcd.queue_draw()
         self._schedule_tick()
+        self._animate_or_rest()
+        if self.mpris:
+            self.mpris.changed(seeked)
 
     # The counter only changes once a second, so wake exactly at the next second boundary
     # while playing and visible; otherwise no timer at all.
@@ -254,8 +271,68 @@ class Deck(Gtk.ApplicationWindow):
         return False
 
     def _on_window_state(self, _w, ev):
-        self.hidden = bool(ev.new_window_state & Gdk.WindowState.ICONIFIED)
-        self.refresh()
+        self._set_hidden(bool(ev.new_window_state & Gdk.WindowState.ICONIFIED))
+
+    def _set_hidden(self, hidden):
+        if hidden != self.hidden:
+            self.hidden = hidden
+            self.refresh()
+
+    # Reels and meters run at FPS only while the tape moves in a visible window; parec only
+    # while it plays. Paused, stopped, minimized or on another workspace: no timer, no parec.
+    def _animate_or_rest(self):
+        moving = self.tape.mode in ("play", "load") and self.tape.name and not self.hidden
+        if moving and not self.anim_id:
+            self.anim_at = time.monotonic()
+            self.anim_id = GLib.timeout_add(1000 // FPS, self._frame)
+        elif not moving and self.anim_id:
+            GLib.source_remove(self.anim_id)
+            self.anim_id = 0
+        if moving and self.tape.mode == "play":
+            self._start_meter()
+        elif self.meter.running:
+            self.meter.stop()
+        if not self.meter.running:
+            self.tape.vu = None
+
+    def _start_meter(self):
+        """parec needs the engine's stream, which appears a moment after the engine starts."""
+        now = time.monotonic()
+        if not self.meter.running and now - self.meter_try > 2:
+            self.meter_try = now
+            self.meter.start()
+
+    def _frame(self):
+        now = time.monotonic()
+        dt, self.anim_at = now - self.anim_at, now
+        t = self.tape
+        h = self.lcd.get_allocated_height()
+        speed = TAPE_PX_S * (REWIND if t.mode == "load" else 1)
+        for i, r in enumerate(display.reel_radii(h - 16, display.CASSETTE[2], t.progress())):
+            t.angles[i] = (t.angles[i] + speed / r * dt) % math.tau
+        if t.mode == "play":
+            self._start_meter()
+        if self.meter.running:
+            t.vu = self.meter.levels(dt)
+        for rect in display.regions(self.lcd.get_allocated_width(), h):
+            self.lcd.queue_draw_area(*rect)
+        return True
+
+    def _draw_lcd(self, area, cr):
+        """Render client-side, then send one image. Drawing straight onto the window would make
+        Xorg rasterize every arc, segment and glyph (cairo-xlib), which costs more than the drawing."""
+        w, h, sf = area.get_allocated_width(), area.get_allocated_height(), area.get_scale_factor()
+        buf = self.lcd_buf
+        if buf is None or (buf.get_width(), buf.get_height()) != (w * sf, h * sf):
+            buf = self.lcd_buf = cairo.ImageSurface(cairo.FORMAT_RGB24, w * sf, h * sf)
+            buf.set_device_scale(sf, sf)
+        bc = cairo.Context(buf)
+        for r in cr.copy_clip_rectangle_list():      # only the damaged parts (reels, meters)
+            bc.rectangle(r.x, r.y, r.width, r.height)
+        bc.clip()
+        display.draw(bc, w, h, self.tape, bitrate=BITRATE)
+        cr.set_source_surface(buf, 0, 0)
+        cr.paint()
 
     def load_art(self, urls):
         """Put the cover on the J-card: dithered once on the art lane, then cached on disk."""
@@ -322,7 +399,8 @@ class Deck(Gtk.ApplicationWindow):
         for line in data.splitlines():
             if line.startswith("event="):
                 self.apply(parse_event(line), replay)
-        self.refresh()
+        self.refresh(seeked=self.seeked)
+        self.seeked = False
 
     def apply(self, ev, replay=False):
         t, name = self.tape, ev.get("event")
@@ -341,6 +419,7 @@ class Deck(Gtk.ApplicationWindow):
             if name != "seeked" and name != "position_correction":
                 t.mode = "play" if name == "playing" else "pause"
             t.set_pos(ev.get("POSITION_MS") or 0)
+            self.seeked = name == "seeked"
             if not replay:
                 self.say("Playing" if t.mode == "play" else "Paused")
         elif name == "loading":
@@ -475,6 +554,9 @@ class Deck(Gtk.ApplicationWindow):
         self.api(self.sp.seek, pos)
 
     def _on_volume(self, scale):
+        self.meter.set_volume(scale.get_value())
+        if self.mpris:
+            self.mpris.changed()
         if self.quiet or self.sp is None:
             return
         if self.vol_id:
@@ -583,6 +665,7 @@ class Deck(Gtk.ApplicationWindow):
         return False
 
     def quit(self):
+        self.meter.stop()
         if self.engine and self.engine.poll() is None:
             try:
                 os.killpg(self.engine.pid, signal.SIGTERM)
@@ -619,6 +702,7 @@ class App(Gtk.Application):
             self.win.present()
             return
         self.win = Deck(self)
+        self.win.mpris = mpris.Mpris(self.win, self.get_dbus_connection())
         self.win.show_all()
         GLib.idle_add(self.win.boot)   # first paint before any process spawns or file reads
 
