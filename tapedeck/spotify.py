@@ -8,6 +8,7 @@ import http.server
 import json
 import os
 import secrets
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -110,8 +111,13 @@ class Spotify:
     def __init__(self):
         with open(TOKEN_FILE) as f:
             self.tok = json.load(f)
+        self._lock = threading.Lock()   # the UI uses two worker threads; refresh only once
 
     def _token(self):
+        with self._lock:
+            return self._token_locked()
+
+    def _token_locked(self):
         if time.time() >= self.tok["expires_at"]:
             new = _post_form(TOKEN_URL, {
                 "grant_type": "refresh_token",
@@ -152,8 +158,8 @@ class Spotify:
     def search(self, q, kind="track", limit=10, offset=0):
         return self.call("GET", "/search", {"q": q, "type": kind, "limit": limit, "offset": offset})
 
-    def playlists(self, limit=50):
-        return self.call("GET", "/me/playlists", {"limit": limit})
+    def playlists(self, offset=0, limit=50):
+        return self.call("GET", "/me/playlists", {"offset": offset, "limit": limit})
 
     def playlist_items(self, pid, offset=0, limit=100):
         return self.call("GET", f"/playlists/{pid}/items", {"offset": offset, "limit": limit})
@@ -180,8 +186,8 @@ class Spotify:
             body["context_uri"] = context_uri
         if uris:
             body["uris"] = uris
-        if offset is not None:
-            body["offset"] = {"position": offset}
+        if offset is not None:   # int position, or a track URI inside the context
+            body["offset"] = {"uri": offset} if isinstance(offset, str) else {"position": offset}
         params = {"device_id": device_id} if device_id else None
         return self.call("PUT", "/me/player/play", params, body or None)
 
@@ -199,6 +205,12 @@ class Spotify:
 
     def volume(self, pct):
         return self.call("PUT", "/me/player/volume", {"volume_percent": int(pct)})
+
+    def queue(self):
+        return self.call("GET", "/me/player/queue")
+
+    def add_to_queue(self, uri):
+        return self.call("POST", "/me/player/queue", {"uri": uri})
 
     def transfer(self, device_id, play=False):
         return self.call("PUT", "/me/player", body={"device_ids": [device_id], "play": play})

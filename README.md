@@ -1,6 +1,6 @@
 # tapedeck
 
-Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassette-deck display. Status: **deck window works** (playlists and search drawer next). See [PLAN.md](PLAN.md).
+Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassette-deck display. Status: **deck + drawer work**: playlists, Liked Songs, search and the queue (animations, VU meters and media keys next). See [PLAN.md](PLAN.md).
 
 ## Setup
 1. librespot: `cargo install librespot --version 0.8.0 --locked --no-default-features --features rustls-tls-native-roots`
@@ -13,7 +13,10 @@ Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassett
 The LCD uses the VT323 pixel font from `~/haven/shared/fonts/` (installed into `~/.local/share/fonts/`).
 
 ## Keys
-`Space` play/pause · `S` stop · `H`/`L` previous/next · `Shift+H`/`Shift+L` seek ±10 s · `+`/`-` volume · `E` eject · `?` keyboard card · `Ctrl+Q` exit
+`Space` play/pause · `S` stop · `H`/`L` previous/next · `Shift+H`/`Shift+L` seek ±10 s · `+`/`-` volume · `E` eject (drawer) · `/` search · `Enter` play selected · `Q` queue selected · `Esc` leave search · `?` keyboard card · `Ctrl+Q` exit
+
+## Cache
+`~/.cache/haven/tapedeck/` holds `playlists.json`, `liked.json`, `tapes/<id>.json` (your own playlists, keyed by snapshot_id) and `sealed/<id>.json` (tracks heard on followed playlists). It's safe to delete.
 
 ## Test commands
 `python3 -m tapedeck.cli devices | search <q> | playlists | play [uri] | pause | next | previous | now`
@@ -24,5 +27,6 @@ The LCD uses the VT323 pixel font from `~/haven/shared/fonts/` (installed into `
 | librespot | 22 MB | ~1.0 % |
 | pacat | 5 MB | ~0.2 % |
 | tapedeck UI, playing, visible | 71 MB | 0.35 % |
+| tapedeck UI, playing, drawer open, 697 rows | 78 MB | 0.30 % |
 
 The window maps 0.7 s after launch. UI RSS is just over the 70 MB target, mostly GTK at 2x HiDPI scale. Check again after milestone 4.

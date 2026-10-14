@@ -18,8 +18,9 @@ gi.require_version("Pango", "1.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import display, spotify
+from .drawer import Drawer
 
-VERSION = "0.2"
+VERSION = "0.3"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(ROOT, "bin", "tapedeck-engine")
 RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "tapedeck")
@@ -34,7 +35,11 @@ KEYS = [
     ("H / L", "Previous / next track"),
     ("Shift+H / Shift+L", "Rewind / fast-forward 10 s"),
     ("+ / -", "Volume up / down"),
-    ("E", "Eject (open the drawer)"),
+    ("E", "Eject: open / close the drawer"),
+    ("/", "Search (opens the drawer)"),
+    ("Enter", "Play the selected track"),
+    ("Q", "Add the selected track to the queue"),
+    ("Esc", "Leave the search box"),
     ("?", "This card"),
     ("Ctrl+Q", "Exit"),
 ]
@@ -68,7 +73,7 @@ class Deck(Gtk.ApplicationWindow):
         self.vol_id = 0
         self.quiet = False          # set while syncing widgets from events (no feedback loop)
         self.hidden = False
-        self.jobs = queue.Queue()
+        self.lanes = {"ctl": queue.Queue(), "lib": queue.Queue()}   # transport never waits behind a big load
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(box)
@@ -86,6 +91,10 @@ class Deck(Gtk.ApplicationWindow):
         body.pack_start(frame, False, False, 0)
         body.pack_start(self._transport(), False, False, 0)
 
+        self.drawer = Drawer(self)
+        self.revealer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.NONE)
+        self.revealer.add(self.drawer)
+        box.pack_start(self.revealer, True, True, 0)
         box.pack_end(self._statusbar(), False, False, 0)
 
         self.connect("key-press-event", self._on_key)
@@ -171,7 +180,6 @@ class Deck(Gtk.ApplicationWindow):
             row.pack_start(self._button(icon, tip, cb), False, False, 0)
 
         self.eject_btn = self._button("media-eject", "Eject: open the drawer (E)", self.eject)
-        self.eject_btn.set_sensitive(False)   # the drawer arrives in milestone 3
         row.pack_end(self.eject_btn, False, False, 0)
 
         self.vol = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
@@ -191,6 +199,8 @@ class Deck(Gtk.ApplicationWindow):
             f = Gtk.Frame(shadow_type=Gtk.ShadowType.IN)
             lab = Gtk.Label(label=text, xalign=0, margin_start=4, margin_end=4)
             lab.set_ellipsize(Pango.EllipsizeMode.END if expand else Pango.EllipsizeMode.NONE)
+            if expand:
+                lab.set_max_width_chars(20)   # long messages ellipsize instead of widening the window
             f.add(lab)
             row.pack_start(f, expand, expand, 0)
             return lab
@@ -249,7 +259,8 @@ class Deck(Gtk.ApplicationWindow):
         self.monitor = Gio.File.new_for_path(EVENTS).monitor_file(Gio.FileMonitorFlags.NONE, None)
         self.monitor.connect("changed", lambda *a: self.read_events())
 
-        threading.Thread(target=self._worker, daemon=True).start()
+        for lane in self.lanes.values():
+            threading.Thread(target=self._worker, args=(lane,), daemon=True).start()
         try:
             self.sp = spotify.Spotify()
         except (OSError, ValueError):
@@ -284,6 +295,9 @@ class Deck(Gtk.ApplicationWindow):
             t.uri = ev.get("URI")
             t.covers = ev.get("COVERS", "").split(" | ")
             t.duration_ms = int(ev.get("DURATION_MS") or 0)
+            self.drawer.mark_playing(t.uri, t.name, t.artists)
+            if not replay and self.sp:
+                self.api(self.sp.state, done=self._synced)
         elif name in ("playing", "paused", "seeked", "position_correction"):
             if name != "seeked" and name != "position_correction":
                 t.mode = "play" if name == "playing" else "pause"
@@ -311,22 +325,24 @@ class Deck(Gtk.ApplicationWindow):
             self.say("TRACK UNAVAILABLE: skipping")
 
     # --- Web API worker ----------------------------------------------------
-    def api(self, fn, *args, done=None):
-        self.jobs.put((fn, args, done))
+    def api(self, fn, *args, done=None, fail=None, lane="ctl"):
+        self.lanes[lane].put((fn, args, done, fail))
 
-    def _worker(self):
+    def _worker(self, lane):
         while True:
-            fn, args, done = self.jobs.get()
+            fn, args, done, fail = lane.get()
             try:
                 res, err = fn(*args), None
             except Exception as e:  # network or API error; reported in the status bar
                 res, err = None, e
-            GLib.idle_add(self._job_done, done, res, err)
+            GLib.idle_add(self._job_done, done, fail, res, err)
 
-    def _job_done(self, done, res, err):
+    def _job_done(self, done, fail, res, err):
         if err is None:
             if done:
                 done(res)
+        elif fail:
+            fail(err)
         elif isinstance(err, spotify.SpotifyError) and err.status == 404:
             self.say("NO TAPE IN DECK: press Play to take over playback")
         else:
@@ -350,11 +366,14 @@ class Deck(Gtk.ApplicationWindow):
                 self.say(f"Spotify is playing on {dev['name']}: press Play to take over")
             return
         item = st.get("item") or {}
+        self.drawer.heard((st.get("context") or {}).get("uri"), item)
         t = self.tape
         t.name = item.get("name") or t.name
         t.artists = ", ".join(a["name"] for a in item.get("artists", [])) or t.artists
         t.album = (item.get("album") or {}).get("name", t.album)
         t.duration_ms = item.get("duration_ms") or t.duration_ms
+        if item.get("uri"):
+            self.drawer.mark_playing(item["uri"], t.name, t.artists)
         t.mode = "play" if st.get("is_playing") else "pause"
         t.set_pos(st.get("progress_ms") or 0)
         if dev.get("volume_percent") is not None:
@@ -424,7 +443,34 @@ class Deck(Gtk.ApplicationWindow):
         self.vol.set_value(max(0, min(100, self.vol.get_value() + d)))
 
     def eject(self):
-        self.say("The drawer is still being built (milestone 3)")
+        show = not self.revealer.get_reveal_child()
+        if show:
+            self.drawer.open()
+        self.revealer.set_reveal_child(show)
+        if show:
+            self.drawer.tree.grab_focus()
+
+    def search_key(self):
+        if not self.revealer.get_reveal_child():
+            self.eject()
+        self.drawer.focus_search()
+
+    def play_context(self, uri, offset=None, fallback=None):
+        """Play a playlist/collection context; on refusal, play the fallback list of track URIs."""
+        def job():
+            dev = self._device()
+            try:
+                self.sp.play(dev, context_uri=uri, offset=offset)
+            except spotify.SpotifyError:
+                if not fallback:
+                    raise
+                self.sp.play(dev, uris=fallback, offset=0)
+        self.say("REWINDING TAPE...")
+        self.api(job)
+
+    def play_uris(self, uris, offset):
+        self.say("REWINDING TAPE...")
+        self.api(lambda: self.sp.play(self._device(), uris=uris, offset=offset))
 
     def sign_in(self):
         self.say("Waiting for Spotify in your browser...")
@@ -470,6 +516,8 @@ class Deck(Gtk.ApplicationWindow):
             "KP_Add": lambda: self.nudge_volume(5),
             "minus": lambda: self.nudge_volume(-5), "KP_Subtract": lambda: self.nudge_volume(-5),
             "e": self.eject,
+            "slash": self.search_key,
+            "q": self.drawer.queue_selected,
             "question": self.show_keys,
         }.get(k)
         if action:

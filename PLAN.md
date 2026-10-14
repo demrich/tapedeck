@@ -62,7 +62,7 @@ Menu accelerators (`Tape → &Play  Space`) plus: `space` play/pause · `h`/`l` 
 0. ✅ **Setup** (2026-10-13): build librespot (`cargo install librespot`, a one-time ~30–40 min compile on this CPU) and create a Spotify developer app (client ID, redirect `http://127.0.0.1:8898/callback`).
 1. ✅ **Engine** (2026-10-13): librespot runs as the "TAPEDECK" device, plus a Python Web API client with PKCE and token refresh. Test from the command line: search → play → pause.
 2. ✅ **Deck** (2026-10-13): window with menu bar, transport row and status bar; draw the display in cairo; wire up the transport and LCD counter, connect the event hook. The tape packs on the reels already follow the track position (rotation comes in milestone 4).
-3. **Drawer**: playlists and liked songs as cassettes, search, the queue.
+3. ✅ **Drawer** (2026-10-13): the eject button opens a list of cassettes (Liked Songs, your own playlists, then followed playlists marked [sealed]), plus search (10 results per page, with a "more results" row) and Up Next (the queue). Enter plays the selected track in its context, `Q` queues it, and Play Tape starts the cassette from the top. Tracklists are cached on disk and refetched only when the playlist's snapshot_id changes (Liked Songs: when its total or newest track changes). Sealed cassettes record each track as it's heard. Web API calls run on two worker lanes so a big load never delays transport commands.
 4. **Life**: spinning reels, real VU meters, dithered J-card art, MacBook media keys via MPRIS.
 5. **Ship**: `.desktop` entry, librespot user service, measure against the budget and record the numbers in the README.
 
