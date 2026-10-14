@@ -16,7 +16,7 @@ The LCD uses the VT323 pixel font from `~/haven/shared/fonts/` (installed into `
 `Space` play/pause · `S` stop · `H`/`L` previous/next · `Shift+H`/`Shift+L` seek ±10 s · `+`/`-` volume · `E` eject (drawer) · `/` search · `Enter` play selected / open page · `Q` queue selected · `A`/`B` artist / album page · `R` radio · `Backspace` (or `Alt+Left`) back · `Esc` leave search · `?` keyboard card · `Ctrl+Q` exit
 
 ## Browsing and radio
-Press `A` or `B` on a track, or click the artist line or the J-card on the display, to open an artist or album page. An artist page lists Popular tracks, Albums, Singles & EPs and Fans Also Like. Pages join the Cassette list, and Back walks the history.
+Press `A` or `B` on a track, or click the artist line or the J-card on the display, to open an artist or album page. An artist page lists Popular tracks, Albums, EPs, Singles and Fans Also Like. Every column keeps its meaning on every row (album rows: name and year under Title, the album's artists under Artist). The release type is in the section heading, and details are in the tooltip. Pages join the Cassette list, and Back walks the history.
 
 Spotify withholds top tracks, related artists, recommendations and radio (`spotify:station:`) from development-mode apps. TAPEDECK gets those from **Deezer's public API** (no key, no account) and matches each song back to Spotify by search. A match must agree on the artist and the title; a song Spotify doesn't have is dropped rather than replaced by a wrong one (typically 22–25 of 25 radio tracks match). Starting radio takes about 4 s. Started from the song in the deck, the song keeps playing and the station follows. The engine also runs with `--autoplay on`, so when a tape ends, Spotify keeps playing similar music.
 

@@ -95,7 +95,7 @@ class Deck(Gtk.ApplicationWindow):
             cr, a.get_allocated_width(), a.get_allocated_height(), self.tape, bitrate=BITRATE))
         self.lcd.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.lcd.connect("button-press-event", self._on_lcd_click)
-        self.lcd.set_tooltip_text("Click the artist line for the artist page, the J-card for the album")
+        self.lcd.set_tooltip_text("Click: title → artist, cover → album")
         frame.add(self.lcd)
         body.pack_start(frame, False, False, 0)
         body.pack_start(self._transport(), False, False, 0)

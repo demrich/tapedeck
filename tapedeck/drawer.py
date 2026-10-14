@@ -41,16 +41,29 @@ def track_row(t):
     return [t.get("name") or "?", artists, (t.get("album") or {}).get("name", ""), t.get("duration_ms") or 0, t["uri"]]
 
 
-def album_item(al, sub=None):
-    """A nav row for an album: (kind, title, sub, time, uri). Singles of 4+ tracks are EPs."""
+def album_kind(al):
+    """Album, EP, Single or Compilation (Spotify calls EPs singles; 4+ tracks makes an EP)."""
     kind = ALBUM_TYPES.get(al.get("album_type"), "Album")
-    if kind == "Single" and (al.get("total_tracks") or 0) >= 4:
-        kind = "EP"
-    if sub is None:
-        sub = kind
-    else:
-        sub = f"{kind}: {sub}"
-    return ("album", al["name"], sub, (al.get("release_date") or "")[:4], al["uri"])
+    return "EP" if kind == "Single" and (al.get("total_tracks") or 0) >= 4 else kind
+
+
+def album_item(al):
+    """A nav row for an album. Each column keeps its meaning: Title = name (year), Artist = the
+    album's artists, Time empty; the kind is in the section heading and the tooltip."""
+    year = (al.get("release_date") or "")[:4]
+    artists = ", ".join(a["name"] for a in al.get("artists", []))
+    tip = " · ".join(x for x in (album_kind(al), year, f"{al.get('total_tracks') or '?'} tracks", artists) if x)
+    return ("album", f"{al['name']} ({year})" if year and year not in al["name"] else al["name"], artists, "", al["uri"],
+            f"{al['name']}\n{tip}")
+
+
+def nav_item(kind, title, uri, tip):
+    """An artist or radio row: only the Title column is used."""
+    return (kind, title, "", "", uri, tip)
+
+
+def heading(text, n=None):
+    return ("head", f"{text} · {n}" if n else text)
 
 
 def length(rows):
@@ -311,20 +324,24 @@ class Drawer(Gtk.Box):
             return [r for r in (track_row(t) for t in found) if r], deezer.related(did, 12)
 
         def build(a, albums, popular, similar, note=""):
-            seen, full, short = set(), [], []
+            seen, kinds = set(), {"Album": [], "EP": [], "Single": [], "Compilation": []}
             for al in albums:
                 if al["name"].casefold() not in seen:
                     seen.add(al["name"].casefold())
-                    (full if al.get("album_type") == "album" else short).append(album_item(al))
-            items = [("radio", f"{a['name']} Radio", "Similar music, via Deezer", "", a["name"])]
+                    kinds[album_kind(al)].append(album_item(al))
+            items = [nav_item("radio", f"{a['name']} Radio", a["name"],
+                              f"{a['name']} Radio\nAbout 25 songs like {a['name']} (picked by Deezer)")]
             uris = set()
             popular = [r for r in popular if not (r[4] in uris or uris.add(r[4]))]
-            for head, group in [("POPULAR", [("track", r) for r in popular]), ("ALBUMS", full),
-                                ("SINGLES & EPS", short),
-                                ("FANS ALSO LIKE", [("artist", n, "Artist", "", "dz:" + n) for n in similar])]:
+            similar = [nav_item("artist", n, "dz:" + n, f"{n}\nArtist") for n in similar]
+            for head, group in [("POPULAR", [("track", r) for r in popular]), ("ALBUMS", kinds["Album"]),
+                                ("EPS", kinds["EP"]), ("SINGLES", kinds["Single"]),
+                                ("COMPILATIONS", kinds["Compilation"]), ("FANS ALSO LIKE", similar)]:
                 if group:
-                    items += [("head", head)] + group
-            status = f"{a['name']}: {len(full)} albums, {len(short)} singles & EPs{note}"
+                    items += [heading(head, len(group) if head != "POPULAR" else None)] + group
+            word = {"Album": "album", "EP": "EP", "Single": "single", "Compilation": "compilation"}
+            counts = ", ".join(f"{len(g)} {word[k]}{'s' if len(g) != 1 else ''}" for k, g in kinds.items() if g)
+            status = f"{a['name']}: {counts or 'no releases'}{note}"
             self._page_update(cid, a["name"], items, status)
 
         def stage1(res):
@@ -364,9 +381,10 @@ class Drawer(Gtk.Box):
                     row[2] = al["name"]
                     rows.append(row)
             year = (al.get("release_date") or "")[:4]
-            items = [("artist", a["name"], "Artist", "", a["uri"]) for a in al.get("artists", [])[:3]]
-            items += [("head", " · ".join(x for x in (al["name"].upper(), year, al.get("label")) if x))]
+            items = [heading(" · ".join(x for x in (album_kind(al).upper(), year) if x))]
             items += [("track", r) for r in rows]
+            items += [heading("BY")] + [nav_item("artist", a["name"], a["uri"], f"{a['name']}\nArtist")
+                                        for a in al.get("artists", [])[:3]]
             self._page_update(cid, al["name"], items,
                               f"{al['name']} ({year}): {len(rows)} tracks, {length(rows)}")
         self.deck.api(job, lane="lib", done=done,
@@ -559,7 +577,7 @@ class Drawer(Gtk.Box):
 
     def _fill_items(self, items, more=False):
         """Rows of mixed kinds: ("track", row), ("head", text), or a nav row
-        ("album" | "artist" | "radio", title, sub, time, uri)."""
+        ("album" | "artist" | "radio", title, artist, time, uri, tooltip)."""
         self.rows = []
         self.store.clear()
         for it in items:
@@ -572,8 +590,8 @@ class Drawer(Gtk.Box):
             elif it[0] == "head":
                 self.store.append([-1, "", it[1], "", "", "", "", Pango.Weight.BOLD, "head"])
             else:
-                kind, title, sub, time, uri = it
-                tip = GLib.markup_escape_text(f"{title}\n{sub}")
+                kind, title, sub, time, uri, tip = it
+                tip = GLib.markup_escape_text(tip)
                 self.store.append([-1, "▶" if kind == "radio" else "»", title, sub, tip, time, uri,
                                    Pango.Weight.NORMAL, kind])
         if more:
@@ -649,10 +667,10 @@ class Drawer(Gtk.Box):
                 artists = [a for a in res.get("artists", {}).get("items", []) if a][:3]
                 albums = [a for a in res.get("albums", {}).get("items", []) if a][:3]
                 self.search_extra = (
-                    ([("head", "ARTISTS")] if artists else [])
-                    + [("artist", a["name"], "Artist", "", a["uri"]) for a in artists]
-                    + ([("head", "ALBUMS")] if albums else [])
-                    + [album_item(a, ", ".join(x["name"] for x in a.get("artists", []))) for a in albums])
+                    ([heading("ARTISTS")] if artists else [])
+                    + [nav_item("artist", a["name"], a["uri"], f"{a['name']}\nArtist") for a in artists]
+                    + ([heading("ALBUMS")] if albums else [])
+                    + [album_item(a) for a in albums])
             tracks = res.get("tracks", {})
             self.search_total = tracks.get("total", 0)
             self.search_rows += [r for r in (track_row(t) for t in tracks.get("items", [])) if r]
