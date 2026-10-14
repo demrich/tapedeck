@@ -63,11 +63,13 @@ Menu accelerators (`Tape → &Play  Space`) plus: `space` play/pause · `h`/`l` 
 1. ✅ **Engine** (2026-10-13): librespot runs as the "TAPEDECK" device, plus a Python Web API client with PKCE and token refresh. Test from the command line: search → play → pause.
 2. ✅ **Deck** (2026-10-13): window with menu bar, transport row and status bar; draw the display in cairo; wire up the transport and LCD counter, connect the event hook. The tape packs on the reels already follow the track position (rotation comes in milestone 4).
 3. ✅ **Drawer** (2026-10-13): the eject button opens a list of cassettes (Liked Songs, your own playlists, then followed playlists marked [sealed]), plus search (10 results per page, with a "more results" row) and Up Next (the queue). Enter plays the selected track in its context, `Q` queues it, and Play Tape starts the cassette from the top. Tracklists are cached on disk and refetched only when the playlist's snapshot_id changes (Liked Songs: when its total or newest track changes). Sealed cassettes record each track as it's heard. Web API calls run on two worker lanes so a big load never delays transport commands.
-4. **Life**: spinning reels, real VU meters, dithered J-card art, MacBook media keys via MPRIS.
+3½. ✅ **Browse** (2026-10-13): artist pages (popular, albums, singles & EPs, fans also like) and album pages, opened with `A`/`B`, by clicking the display, or from search (which now also shows artists and albums). Back history. Artist radio. Album art as a dithered J-card on the display. Top tracks, look-alikes and radio come from Deezer's public API and are matched to Spotify tracks (dev mode returns 403 for top tracks and related artists, and 404 for recommendations; station URIs are refused).
+4. **Life**: spinning reels, real VU meters, MacBook media keys via MPRIS.
 5. **Ship**: `.desktop` entry, librespot user service, measure against the budget and record the numbers in the README.
 
 ## Caveats
 - **Development-mode API limits (verified 2026-10-13):** playlist track lists can only be read for playlists the user **owns**. Followed playlists return 403, but they can still be *played* by context URI. Show them as "sealed cassettes" whose tracklist fills in from librespot `track_changed` events. Search returns at most 10 results per request.
+- **Also blocked in development mode (verified 2026-10-13):** artist top tracks (403), related artists (403), recommendations (404), `spotify:station:` contexts ("Non supported context uri"), page sizes over 10 for artist albums, and artist genres/followers (the fields are gone). Deezer's public API fills those gaps.
 - Spotify Premium is required (librespot and Web API playback control both need it).
 - librespot is unofficial. It is widely used, but technically outside Spotify's ToS.
 - A developer app in development mode is limited to a few allowlisted users, which is fine for personal use.

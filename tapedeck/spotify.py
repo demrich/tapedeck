@@ -107,6 +107,12 @@ def login():
     }))
 
 
+def _loose(title):
+    """Titles compared loosely: no "(Remastered)" / " - Live" tails, case or punctuation."""
+    title = title.split(" (")[0].split(" - ")[0].split(" [")[0]
+    return "".join(c for c in title.casefold() if c.isalnum())
+
+
 class Spotify:
     def __init__(self):
         with open(TOKEN_FILE) as f:
@@ -167,6 +173,42 @@ class Spotify:
     def liked(self, offset=0, limit=50):
         return self.call("GET", "/me/tracks", {"offset": offset, "limit": limit})
 
+    # --- catalog (browsing) -------------------------------------------------
+    def track(self, tid):
+        return self.call("GET", f"/tracks/{tid}")
+
+    def artist(self, aid):
+        return self.call("GET", f"/artists/{aid}")
+
+    def artist_albums(self, aid, offset=0):
+        # development mode caps this endpoint at 10 per page
+        return self.call("GET", f"/artists/{aid}/albums",
+                         {"include_groups": "album,single", "limit": 10, "offset": offset})
+
+    def album(self, aid):
+        return self.call("GET", f"/albums/{aid}")
+
+    def album_tracks(self, aid, offset=0):
+        return self.call("GET", f"/albums/{aid}/tracks", {"limit": 50, "offset": offset})
+
+    def find_track(self, title, artist):
+        """Spotify's copy of a song known by title + artist name (from Deezer), or None.
+        A hit must agree on the artist and, loosely, the title: a wrong song is worse than none."""
+        want = _loose(title)
+        for q in (f'track:"{title}" artist:"{artist}"', f"{title} {artist}"):
+            for t in self.search(q, "track", 5)["tracks"]["items"]:
+                if not t or artist.casefold() not in (a["name"].casefold() for a in t["artists"]):
+                    continue
+                got = _loose(t["name"])
+                if got == want or got.startswith(want) or want.startswith(got):
+                    return t
+        return None
+
+    def find_artist(self, name):
+        hits = [a for a in self.search(name, "artist", 5)["artists"]["items"] if a]
+        exact = [a for a in hits if a["name"].casefold() == name.casefold()]
+        return (exact or hits or [None])[0]
+
     # --- playback ----------------------------------------------------------
     def devices(self):
         return self.call("GET", "/me/player/devices")["devices"]
@@ -180,8 +222,10 @@ class Spotify:
     def state(self):
         return self.call("GET", "/me/player")
 
-    def play(self, device_id=None, context_uri=None, uris=None, offset=None):
+    def play(self, device_id=None, context_uri=None, uris=None, offset=None, position_ms=None):
         body = {}
+        if position_ms:
+            body["position_ms"] = int(position_ms)
         if context_uri:
             body["context_uri"] = context_uri
         if uris:

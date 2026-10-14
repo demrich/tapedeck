@@ -1,8 +1,9 @@
 """TAPEDECK main window: stock GTK chrome (inherits the system theme) around the cairo deck display.
 
 Event-driven: librespot appends player events to $XDG_RUNTIME_DIR/tapedeck/events, which is
-watched with inotify (GFileMonitor). The Web API is only called on user actions, from one
-worker thread, so the UI thread never blocks on the network.
+watched with inotify (GFileMonitor). The Web API is only called on user actions, from
+worker threads (one lane each for transport, library loads and cover art), so the UI thread
+never blocks on the network.
 """
 import os
 import queue
@@ -17,10 +18,10 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import display, spotify
+from . import art, display, spotify
 from .drawer import Drawer
 
-VERSION = "0.3"
+VERSION = "0.4"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(ROOT, "bin", "tapedeck-engine")
 RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "tapedeck")
@@ -39,6 +40,9 @@ KEYS = [
     ("/", "Search (opens the drawer)"),
     ("Enter", "Play the selected track"),
     ("Q", "Add the selected track to the queue"),
+    ("A / B", "Go to the artist / album (selected row, else the tape in the deck)"),
+    ("R", "Start radio from the selected track or artist (else the tape in the deck)"),
+    ("Backspace", "Back to the previous page"),
     ("Esc", "Leave the search box"),
     ("?", "This card"),
     ("Ctrl+Q", "Exit"),
@@ -73,7 +77,9 @@ class Deck(Gtk.ApplicationWindow):
         self.vol_id = 0
         self.quiet = False          # set while syncing widgets from events (no feedback loop)
         self.hidden = False
-        self.lanes = {"ctl": queue.Queue(), "lib": queue.Queue()}   # transport never waits behind a big load
+        # transport never waits behind a big load, and covers never wait behind either
+        self.lanes = {"ctl": queue.Queue(), "lib": queue.Queue(), "art": queue.Queue()}
+        self.art_url = None
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(box)
@@ -87,6 +93,9 @@ class Deck(Gtk.ApplicationWindow):
         self.lcd.set_size_request(480, 120)
         self.lcd.connect("draw", lambda a, cr: display.draw(
             cr, a.get_allocated_width(), a.get_allocated_height(), self.tape, bitrate=BITRATE))
+        self.lcd.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.lcd.connect("button-press-event", self._on_lcd_click)
+        self.lcd.set_tooltip_text("Click the artist line for the artist page, the J-card for the album")
         frame.add(self.lcd)
         body.pack_start(frame, False, False, 0)
         body.pack_start(self._transport(), False, False, 0)
@@ -145,6 +154,10 @@ class Deck(Gtk.ApplicationWindow):
             ("_Next Track", self.next, "l"),
             ("Re_wind 10 s", lambda: self.seek_by(-SEEK_MS), "<Shift>h"),
             ("_Fast Forward 10 s", lambda: self.seek_by(SEEK_MS), "<Shift>l"),
+            None,
+            ("Go to _Artist", lambda: self.drawer.goto_artist_of_deck(), None),
+            ("Go to Al_bum", lambda: self.drawer.goto_album_of_deck(), None),
+            ("Start Ra_dio", lambda: self.drawer.radio_of_deck(), None),
             None,
             ("_Eject", self.eject, "e"),
         ])
@@ -244,6 +257,31 @@ class Deck(Gtk.ApplicationWindow):
         self.hidden = bool(ev.new_window_state & Gdk.WindowState.ICONIFIED)
         self.refresh()
 
+    def load_art(self, urls):
+        """Put the cover on the J-card: dithered once on the art lane, then cached on disk."""
+        url = art.pick(urls)
+        if url == self.art_url:
+            return
+        self.art_url, self.tape.art = url, None
+        self.lcd.queue_draw()
+        if not url:
+            return
+        def done(pb):
+            if self.art_url == url:
+                self.tape.art = art.surface(pb)
+                self.lcd.queue_draw()
+        self.api(art.load, url, lane="art", done=done, fail=lambda _e: None)
+
+    def _on_lcd_click(self, area, ev):
+        if ev.button != 1 or not self.tape.uri:
+            return False
+        h = area.get_allocated_height()
+        if ev.x >= area.get_allocated_width() - h:      # the J-card
+            self.drawer.goto_album_of_deck()
+        elif ev.x >= 170 and 60 <= ev.y <= 100:        # title / artist lines
+            self.drawer.goto_artist_of_deck()
+        return True
+
     # --- engine + events ---------------------------------------------------
     def boot(self):
         os.makedirs(RUN_DIR, exist_ok=True)
@@ -294,6 +332,7 @@ class Deck(Gtk.ApplicationWindow):
             t.album = ev.get("ALBUM", "")
             t.uri = ev.get("URI")
             t.covers = ev.get("COVERS", "").split(" | ")
+            self.load_art(t.covers)
             t.duration_ms = int(ev.get("DURATION_MS") or 0)
             self.drawer.mark_playing(t.uri, t.name, t.artists)
             if not replay and self.sp:
@@ -359,19 +398,26 @@ class Deck(Gtk.ApplicationWindow):
                 time.sleep(1)
         raise RuntimeError("the TAPEDECK engine is not online; see engine.log")
 
-    def _synced(self, st):
+    def _synced(self, st, tries=0):
         dev = (st or {}).get("device") or {}
         if not st or dev.get("name") != DEVICE:
             if dev.get("name"):
                 self.say(f"Spotify is playing on {dev['name']}: press Play to take over")
             return
         item = st.get("item") or {}
-        self.drawer.heard((st.get("context") or {}).get("uri"), item)
         t = self.tape
+        # The Web API lags librespot by a moment after a track change; a state that still shows
+        # the previous track would put it back on the deck (and its cover, and record it onto a
+        # sealed cassette). Ask again shortly; after a few tries accept it (a relinked track).
+        if t.uri and item.get("uri") != t.uri and tries < 3:
+            GLib.timeout_add(1500, lambda: self.api(self.sp.state, done=lambda s: self._synced(s, tries + 1)))
+            return
+        self.drawer.heard((st.get("context") or {}).get("uri"), item)
         t.name = item.get("name") or t.name
         t.artists = ", ".join(a["name"] for a in item.get("artists", [])) or t.artists
         t.album = (item.get("album") or {}).get("name", t.album)
         t.duration_ms = item.get("duration_ms") or t.duration_ms
+        self.load_art([i["url"] for i in (item.get("album") or {}).get("images", [])] or t.covers)
         if item.get("uri"):
             self.drawer.mark_playing(item["uri"], t.name, t.artists)
         t.mode = "play" if st.get("is_playing") else "pause"
@@ -442,6 +488,10 @@ class Deck(Gtk.ApplicationWindow):
     def nudge_volume(self, d):
         self.vol.set_value(max(0, min(100, self.vol.get_value() + d)))
 
+    def open_drawer(self):
+        if not self.revealer.get_reveal_child():
+            self.eject()
+
     def eject(self):
         show = not self.revealer.get_reveal_child()
         if show:
@@ -468,9 +518,9 @@ class Deck(Gtk.ApplicationWindow):
         self.say("REWINDING TAPE...")
         self.api(job)
 
-    def play_uris(self, uris, offset):
+    def play_uris(self, uris, offset, position_ms=None):
         self.say("REWINDING TAPE...")
-        self.api(lambda: self.sp.play(self._device(), uris=uris, offset=offset))
+        self.api(lambda: self.sp.play(self._device(), uris=uris, offset=offset, position_ms=position_ms))
 
     def sign_in(self):
         self.say("Waiting for Spotify in your browser...")
@@ -500,6 +550,9 @@ class Deck(Gtk.ApplicationWindow):
         d.destroy()
 
     def _on_key(self, _w, ev):
+        if ev.state & Gdk.ModifierType.MOD1_MASK and Gdk.keyval_name(ev.keyval) == "Left":
+            self.drawer.back()
+            return True
         if ev.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK):
             return False
         if isinstance(self.get_focus(), Gtk.Entry):
@@ -518,6 +571,10 @@ class Deck(Gtk.ApplicationWindow):
             "e": self.eject,
             "slash": self.search_key,
             "q": self.drawer.queue_selected,
+            "a": self.drawer.key_artist,
+            "b": self.drawer.key_album,
+            "r": self.drawer.key_radio,
+            "BackSpace": self.drawer.back,
             "question": self.show_keys,
         }.get(k)
         if action:
@@ -539,6 +596,23 @@ class App(Gtk.Application):
         super().__init__(application_id="cc.haunts.haven.tapedeck",
                          flags=Gio.ApplicationFlags.FLAGS_NONE)
         self.win = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        # Remote control over D-Bus (for hotkeys and scripts), e.g.:
+        #   gdbus call --session --dest cc.haunts.haven.tapedeck --object-path /cc/haunts/haven/tapedeck \
+        #     --method org.gtk.Actions.Activate next [] {}
+        for name, method in [("play-pause", "play_pause"), ("next", "next"), ("previous", "previous"),
+                             ("stop", "stop"), ("eject", "eject")]:
+            self._action(name, lambda m=method: getattr(self.win, m)())
+        for name, method in [("artist", "goto_artist_of_deck"), ("album", "goto_album_of_deck"),
+                             ("radio", "radio_of_deck")]:
+            self._action(name, lambda m=method: getattr(self.win.drawer, m)())
+
+    def _action(self, name, fn):
+        act = Gio.SimpleAction.new(name, None)
+        act.connect("activate", lambda *_a: self.win and fn())
+        self.add_action(act)
 
     def do_activate(self):
         if self.win:            # single instance: a second launch just raises the deck

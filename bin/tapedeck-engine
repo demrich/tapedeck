@@ -18,6 +18,7 @@ exec "$HOME/.cargo/bin/librespot" \
     --disable-discovery \
     --initial-volume 70 \
     --enable-volume-normalisation \
+    --autoplay on \
     --onevent "$(dirname "$(readlink -f "$0")")/tapedeck-onevent" \
   | pacat --raw --format=s16le --rate=44100 --channels=2 \
           --client-name=TAPEDECK --stream-name=TAPEDECK --latency-msec=200

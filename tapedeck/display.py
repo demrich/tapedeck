@@ -5,6 +5,8 @@ Pure drawing code (no GTK widgets) so it can also be rendered offscreen for test
 import math
 import time
 
+import cairo
+
 import gi
 gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
@@ -65,6 +67,7 @@ class Tape:
         self._pos = 0
         self._pos_at = time.monotonic()
         self.volume = None       # 0..100
+        self.art = None          # cairo surface of the dithered cover (art.py), or None
 
     def set_pos(self, ms):
         self._pos = int(ms)
@@ -144,20 +147,43 @@ def _cassette(cr, x, y, w, h, progress, angle, label):
     cr.stroke()
 
 
+def _jcard(cr, x, y, s, surf):
+    """The cover in a dim frame, each dithered pixel drawn as a hard-edged 2x2 block."""
+    cr.set_line_width(1)
+    cr.set_source_rgb(*LCD_DIM)
+    cr.rectangle(x + 0.5, y + 0.5, s - 1, s - 1)
+    cr.stroke()
+    if surf is None:
+        _text(cr, x + s / 2 - 22, y + s / 2 - 18, "NO", 18, LCD_GHOST)
+        _text(cr, x + s / 2 - 22, y + s / 2 - 2, "J-CARD", 18, LCD_GHOST)
+        return
+    inner = s - 4
+    cr.save()
+    cr.translate(x + 2, y + 2)
+    cr.scale(inner / surf.get_width(), inner / surf.get_height())
+    cr.set_source_surface(surf, 0, 0)
+    cr.get_source().set_filter(cairo.FILTER_NEAREST)
+    cr.paint()
+    cr.restore()
+
+
 def draw(cr, w, h, tape, angle=0.0, bitrate="160"):
     cr.set_source_rgb(0, 0, 0)
     cr.paint()
 
     side = "SIDE A"
-    _cassette(cr, 8, 8, 176, h - 16, tape.progress(), angle, f"{side}  C-90")
+    _cassette(cr, 8, 8, 150, h - 16, tape.progress(), angle, f"{side}  C-90")
+    js = h - 16
+    _jcard(cr, w - 8 - js, 8, js, tape.art)
 
-    x0 = 198
-    right = w - 10
+    x0 = 170
+    right = w - js - 18
     tw = right - x0
     word = {"play": "PLAY", "pause": "PAUSE", "stop": "STOP", "load": "REWINDING TAPE..."}[tape.mode]
     _shape(cr, tape.mode, x0, 10, 12)
     _text(cr, x0 + (28 if tape.mode == "load" else 18), 4, word, 20, LCD)
-    _text(cr, right, 4, f"TYPE II {bitrate}K", 20, LCD_MID, align_right=True)
+    if tape.mode != "load":   # the long REWINDING word needs the whole row
+        _text(cr, right, 4, f"TYPE II {bitrate}K", 20, LCD_MID, align_right=True)
 
     # counter with unlit ghost segments behind it
     if tape.name:
