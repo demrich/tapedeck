@@ -61,7 +61,7 @@ Menu accelerators (`Tape → &Play  Space`) plus: `space` play/pause · `h`/`l` 
 ## Milestones
 0. ✅ **Setup** (2026-10-13): build librespot (`cargo install librespot`, a one-time ~30–40 min compile on this CPU) and create a Spotify developer app (client ID, redirect `http://127.0.0.1:8898/callback`).
 1. ✅ **Engine** (2026-10-13): librespot runs as the "TAPEDECK" device, plus a Python Web API client with PKCE and token refresh. Test from the command line: search → play → pause.
-2. **Deck**: window with menu bar, toolbar and status bar; draw the display in cairo; wire up the transport and LCD counter, connect the event hook.
+2. ✅ **Deck** (2026-10-13): window with menu bar, transport row and status bar; draw the display in cairo; wire up the transport and LCD counter, connect the event hook. The tape packs on the reels already follow the track position (rotation comes in milestone 4).
 3. **Drawer**: playlists and liked songs as cassettes, search, the queue.
 4. **Life**: spinning reels, real VU meters, dithered J-card art, MacBook media keys via MPRIS.
 5. **Ship**: `.desktop` entry, librespot user service, measure against the budget and record the numbers in the README.

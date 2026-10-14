@@ -134,7 +134,10 @@ class Spotify:
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
                 raw = r.read()
-                return json.loads(raw) if raw else None
+                # player commands answer 200/204 with an empty or non-JSON body; only parse JSON
+                if not raw.strip() or "json" not in (r.headers.get("Content-Type") or ""):
+                    return None
+                return json.loads(raw)
         except urllib.error.HTTPError as e:
             try:
                 msg = json.load(e).get("error", {}).get("message", e.reason)
@@ -146,8 +149,8 @@ class Spotify:
     def me(self):
         return self.call("GET", "/me")
 
-    def search(self, q, kind="track", limit=20):
-        return self.call("GET", "/search", {"q": q, "type": kind, "limit": limit})
+    def search(self, q, kind="track", limit=10, offset=0):
+        return self.call("GET", "/search", {"q": q, "type": kind, "limit": limit, "offset": offset})
 
     def playlists(self, limit=50):
         return self.call("GET", "/me/playlists", {"limit": limit})

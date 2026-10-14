@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TAPEDECK
+GenericName=Music Player
+Comment=Spotify cassette deck (HAVEN)
+Exec=/home/ghost/haven/apps/tapedeck/bin/tapedeck
+Icon=multimedia-player
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=Tapedeck

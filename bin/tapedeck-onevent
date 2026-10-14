@@ -1,11 +1,13 @@
 #!/bin/sh
 # Called by librespot for each player event; env vars carry the details.
+# One line per event: event=<name> then TAB-separated KEY=value pairs.
+# Multi-value fields (ARTISTS, COVERS) arrive newline-separated; they are joined with " | ".
+# The line is built first and appended with a single write, so the UI never reads half an event.
 RUN="${XDG_RUNTIME_DIR:-/tmp}/tapedeck"
-{
-  printf 'event=%s' "${PLAYER_EVENT:-}"
-  for v in TRACK_ID URI NAME ARTISTS ALBUM DURATION_MS POSITION_MS VOLUME COVERS; do
-    eval "val=\${$v:-}"
-    [ -n "$val" ] && printf '\t%s=%s' "$v" "$(printf %s "$val" | tr '\t\n' '  ')"
-  done
-  printf '\n'
-} >> "$RUN/events"
+TAB=$(printf '\t')
+line="event=${PLAYER_EVENT:-}"
+for v in TRACK_ID URI NAME ARTISTS ALBUM DURATION_MS POSITION_MS VOLUME COVERS; do
+  eval "val=\${$v:-}"
+  [ -n "$val" ] && line="$line$TAB$v=$(printf '%s\n' "$val" | tr '\t' ' ' | awk 'NR>1{printf " | "}{printf "%s",$0}')"
+done
+printf '%s\n' "$line" >> "$RUN/events"

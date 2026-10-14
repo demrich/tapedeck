@@ -1,0 +1,3 @@
+#!/bin/sh
+# Launch the TAPEDECK window (starts the librespot engine too if it isn't running).
+cd "$(dirname "$(readlink -f "$0")")/.." && exec python3 -m tapedeck "$@"
