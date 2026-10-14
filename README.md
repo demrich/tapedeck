@@ -13,6 +13,8 @@ Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassett
 
 To keep TAPEDECK available as a Spotify Connect speaker from login (to cast from a phone with the deck closed): `systemctl --user enable --now tapedeck-engine`. Idle, it costs about 24 MB and 0 % CPU. An engine the deck didn't start is left running when the deck exits.
 
+Closing the window docks the deck in the panel's systray and the music keeps playing. Hidden there it costs the same as minimized (~1 % CPU). Left-click the tray icon to show or hide the deck, right-click for play/pause, next, previous and Exit; hover shows the current track. Only Exit (or `Ctrl+Q`) quits. Without a systray, closing quits.
+
 The LCD uses the VT323 pixel font from `~/haven/shared/fonts/` (installed into `~/.local/share/fonts/`).
 
 ## Keys

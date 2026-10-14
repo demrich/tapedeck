@@ -136,7 +136,7 @@ class Mpris:
     def _call(self, conn, sender, path, iface, method, args, inv):
         d, a = self.deck, args.unpack()
         if method == "Raise":
-            d.present()
+            d.from_tray()
         elif method == "Quit":
             d.quit()
         elif method == "Seek":

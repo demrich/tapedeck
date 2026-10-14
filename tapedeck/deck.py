@@ -20,7 +20,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import art, display, mpris, spotify, vu
+from . import art, display, mpris, spotify, tray, vu
 from .drawer import Drawer
 
 VERSION = "1.0"
@@ -98,6 +98,8 @@ class Deck(Gtk.ApplicationWindow):
         self.anim_at = 0.0
         self.meter_try = 0.0
         self.mpris = None
+        self.tray = None
+        self.spot = None          # where the deck was when it went to the tray
         self.seeked = False
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -129,7 +131,7 @@ class Deck(Gtk.ApplicationWindow):
         self.connect("window-state-event", self._on_window_state)
         self.connect("map-event", lambda *a: self._set_hidden(False))
         self.connect("unmap-event", lambda *a: self._set_hidden(True))   # other workspace
-        self.connect("delete-event", lambda *a: self.quit() or True)
+        self.connect("delete-event", lambda *a: self.close_to_tray() or True)
 
     # --- widgets -----------------------------------------------------------
     def _menubar(self):
@@ -260,6 +262,8 @@ class Deck(Gtk.ApplicationWindow):
         self._animate_or_rest()
         if self.mpris:
             self.mpris.changed(seeked)
+        if self.tray:
+            self.tray.update()
 
     # The counter only changes once a second, so wake exactly at the next second boundary
     # while playing and visible; otherwise no timer at all.
@@ -675,6 +679,24 @@ class Deck(Gtk.ApplicationWindow):
             return True
         return False
 
+    # Closing the window docks the deck in the systray (music keeps playing, nothing animates);
+    # only Exit quits. Without a systray to dock in, closing quits as before.
+    def close_to_tray(self):
+        if self.tray and self.tray.docked():
+            self.to_tray()
+        else:
+            self.quit()
+
+    def to_tray(self):
+        self.spot = self.get_position()
+        self.hide()             # unmap stops the reels, meters and counter
+
+    def from_tray(self):
+        if self.spot and not self.get_visible():
+            self.move(*self.spot)
+        self.deiconify()
+        self.present()
+
     def quit(self):
         self.meter.stop()
         if self.unit:
@@ -712,10 +734,11 @@ class App(Gtk.Application):
 
     def do_activate(self):
         if self.win:            # single instance: a second launch just raises the deck
-            self.win.present()
+            self.win.from_tray()
             return
         self.win = Deck(self)
         self.win.mpris = mpris.Mpris(self.win, self.get_dbus_connection())
+        self.win.tray = tray.Tray(self.win)
         self.win.show_all()
         GLib.idle_add(self.win.boot)   # first paint before any process spawns or file reads
 
