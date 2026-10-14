@@ -23,9 +23,10 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 from . import art, display, mpris, spotify, vu
 from .drawer import Drawer
 
-VERSION = "0.5"
+VERSION = "1.0"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(ROOT, "bin", "tapedeck-engine")
+UNIT = "tapedeck-engine.service"     # bin/tapedeck-install links it into ~/.config/systemd/user
 RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "tapedeck")
 EVENTS = os.path.join(RUN_DIR, "events")
 BITRATE = os.environ.get("TAPEDECK_BITRATE", "160")
@@ -55,6 +56,11 @@ KEYS = [
 ]
 
 
+def have_unit():
+    base = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+    return os.path.exists(os.path.join(base, "systemd", "user", UNIT))
+
+
 def engine_running():
     return subprocess.run(["pgrep", "-f", f"librespot --name {DEVICE}"],
                           stdout=subprocess.DEVNULL).returncode == 0
@@ -77,6 +83,7 @@ class Deck(Gtk.ApplicationWindow):
         self.sp = None
         self.device_id = None
         self.engine = None          # Popen if we started librespot ourselves
+        self.unit = False           # True if we started the user service (and so stop it on exit)
         self.online = False
         self.ev_offset = 0
         self.tick_id = 0
@@ -369,8 +376,12 @@ class Deck(Gtk.ApplicationWindow):
         else:
             self.say("WARMING UP THE HEADS...")
             self.ev_offset = os.path.getsize(EVENTS)   # the engine truncates the file on start
-            log = open(os.path.join(RUN_DIR, "engine.log"), "ab")
-            self.engine = subprocess.Popen([ENGINE], stdout=log, stderr=log, start_new_session=True)
+            if have_unit():      # a user service: restarts on failure, logs to the journal
+                self.unit = True
+                subprocess.Popen(["systemctl", "--user", "start", UNIT])
+            else:
+                log = open(os.path.join(RUN_DIR, "engine.log"), "ab")
+                self.engine = subprocess.Popen([ENGINE], stdout=log, stderr=log, start_new_session=True)
         self.monitor = Gio.File.new_for_path(EVENTS).monitor_file(Gio.FileMonitorFlags.NONE, None)
         self.monitor.connect("changed", lambda *a: self.read_events())
 
@@ -475,7 +486,7 @@ class Deck(Gtk.ApplicationWindow):
             self.device_id = self.sp.device_id(DEVICE)
             if not self.device_id:
                 time.sleep(1)
-        raise RuntimeError("the TAPEDECK engine is not online; see engine.log")
+        raise RuntimeError("the TAPEDECK engine is not online; see journalctl --user -u tapedeck-engine (or engine.log)")
 
     def _synced(self, st, tries=0):
         dev = (st or {}).get("device") or {}
@@ -666,6 +677,8 @@ class Deck(Gtk.ApplicationWindow):
 
     def quit(self):
         self.meter.stop()
+        if self.unit:
+            subprocess.Popen(["systemctl", "--user", "stop", UNIT])
         if self.engine and self.engine.poll() is None:
             try:
                 os.killpg(self.engine.pid, signal.SIGTERM)

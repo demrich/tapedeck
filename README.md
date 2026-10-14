@@ -1,14 +1,17 @@
 # tapedeck
 
-Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassette-deck display. Status: **deck + drawer + browsing + life work**: playlists, Liked Songs, search, the queue, artist and album pages, artist radio, album art on the display, spinning reels, real VU meters, MPRIS and media keys (packaging next). See [PLAN.md](PLAN.md).
+Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassette-deck display. Status: **1.0, shipped**: playlists, Liked Songs, search, the queue, artist and album pages, artist radio, album art on the display, spinning reels, real VU meters, MPRIS and media keys, a menu entry and an engine user service. See [PLAN.md](PLAN.md).
 
 ## Setup
 1. librespot: `cargo install librespot --version 0.8.0 --locked --no-default-features --features rustls-tls-native-roots`
 2. Spotify developer app with redirect URI `http://127.0.0.1:8898/callback`, then `python3 -m tapedeck.cli setup <client_id>` and `python3 -m tapedeck.cli login`
-3. Start the engine: `bin/tapedeck-engine` (first run opens the browser for librespot's own login)
+3. First engine run: `bin/tapedeck-engine` once in a terminal (it opens the browser for librespot's own login), then Ctrl+C
+4. `bin/tapedeck-install`: the menu entry, the engine's systemd user service (`systemd/tapedeck-engine.service`, symlinked into `~/.config/systemd/user/`) and the VT323 font
 
 ## Run
-`bin/tapedeck`, or **TAPEDECK** in the XFCE menu (`tapedeck.desktop` is copied to `~/.local/share/applications/`). It starts the librespot engine if it isn't already running and stops it again on exit.
+**TAPEDECK** in the XFCE menu (Multimedia), or `bin/tapedeck`. The deck starts the engine service (`systemctl --user start tapedeck-engine`) if it isn't running and stops it again on exit. The Connect device is online about 2.7 s after launch. The service restarts librespot if it crashes, and its log is `journalctl --user -u tapedeck-engine`. Without the service installed, the deck runs `bin/tapedeck-engine` itself and logs to `$XDG_RUNTIME_DIR/tapedeck/engine.log`.
+
+To keep TAPEDECK available as a Spotify Connect speaker from login (to cast from a phone with the deck closed): `systemctl --user enable --now tapedeck-engine`. Idle, it costs about 24 MB and 0 % CPU. An engine the deck didn't start is left running when the deck exits.
 
 The LCD uses the VT323 pixel font from `~/haven/shared/fonts/` (installed into `~/.local/share/fonts/`).
 
@@ -39,16 +42,31 @@ D-Bus actions for hotkeys and scripts: `play-pause next previous stop eject arti
 ## Test commands
 `python3 -m tapedeck.cli devices | search <q> | playlists | play [uri] | pause | next | previous | now`
 
-## Measured (2026-10-13, playing 160 kbps)
-| process | RSS | CPU |
-|---|---|---|
-| librespot | 22 MB | ~1.0 % |
-| pacat | 5 MB | ~0.2 % |
-| tapedeck UI, playing, visible | 71 MB | 0.35 % |
-| tapedeck UI, playing, drawer open, 697 rows | 78 MB | 0.30 % |
-| tapedeck UI 0.4, playing, J-card art, radio page open | 78 MB | 0.56 % |
-| tapedeck UI 0.5, playing, visible, reels + VU at 10 fps | 78 MB | 4.0 % (+ Xorg 3.2 %, xfwm4 1.0 %, parec 0.1 %) |
-| tapedeck UI 0.5, paused, or minimized | 78 MB | 0 % |
-| librespot (same 30 s window, 0.5) | | 3.9 % |
+## Measured (1.0, 2026-10-13, 160 kbps, engine under systemd)
+Per process, % of one core, sampled from /proc over 20–60 s. The Xorg baseline from other windows (mostly the terminal) is 0–5 % on its own, so the Xorg numbers are approximate.
 
-The window maps 0.7 s after launch. UI RSS is just over the 70 MB target, mostly GTK at 2x HiDPI scale. With animation, the visible-and-playing total is ~8 % for the UI side. Most of it is GTK's per-frame overhead, not drawing (a frame draws in about 1 ms). At 15 fps it was ~9 %; drawing straight to the X window cost ~12 % at 15 fps. Minimize the deck, or move it to another workspace, and the cost drops to 0.
+| state | UI | Xorg | xfwm4 | librespot | pacat | parec | total |
+|---|---|---|---|---|---|---|---|
+| playing, visible, 60 s | 3.2 % | 3.5 % | 1.1 % | 1.3 % (3.9 % across a track change) | 0.2 % | 0.3 % | ~10 % |
+| playing, minimized | 0 % | (baseline) | 0.5 % | 0.9 % | 0.1 % | — | ~1 % |
+| paused, visible | 0–0.2 % | (baseline) | 0 % | 0 % | 0 % | — | ~0 % |
+
+| | RSS |
+|---|---|
+| UI | 76–78 MB |
+| librespot | 21–24 MB |
+| pacat, parec | 5 MB each |
+
+### Against the targets
+| target | measured | |
+|---|---|---|
+| UI RSS < 70 MB | 76–78 MB | over: mostly GTK at 2x HiDPI scale; the drawer's lists add ~2 MB |
+| librespot RSS < 30 MB | 21–24 MB | ✅ |
+| CPU idle (paused / hidden) ≈ 0 % | 0 % | ✅ |
+| CPU playing, visible < 8 % (reels 15 fps, VU 20 Hz) | ~10 % at 10 fps | over: UI side (UI + Xorg + xfwm4 + parec) ~8 %, engine ~1.5 % |
+| CPU playing, minimized < 3 % | ~1 % | ✅ |
+
+Animation is the expensive part: almost all of it is GTK's per-frame overhead and the compositor, since a frame draws in about 1 ms. Drawing straight to the X window cost ~12 % at 15 fps. Minimize the deck, or move it to another workspace, and only the engine runs. `TAPEDECK_FPS=15` costs about 1–2 % more. In one 60 s sample, Xorg read 11–12 % before the window was restacked (minimized and restored), and 3–3.5 % in every sample after it. The cause wasn't found.
+
+Earlier milestones (for comparison): UI 0.3–0.56 % playing without animation (0.3–0.4); librespot ~1.0 %; the window maps 0.7 s after launch.
+

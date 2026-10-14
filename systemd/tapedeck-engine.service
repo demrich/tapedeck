@@ -1,0 +1,15 @@
+# TAPEDECK engine as a systemd user service: librespot -> pacat, logs in the journal.
+# The deck starts it on demand and stops it on exit. Enable it to keep TAPEDECK
+# available as a Spotify Connect speaker from login (about 30 MB, ~0 % CPU idle):
+#   systemctl --user enable tapedeck-engine
+[Unit]
+Description=TAPEDECK engine (librespot Spotify Connect speaker)
+After=pulseaudio.service sound.target network-online.target
+
+[Service]
+ExecStart=%h/haven/apps/tapedeck/bin/tapedeck-engine
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
