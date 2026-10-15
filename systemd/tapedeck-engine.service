@@ -8,7 +8,7 @@ Description=TAPEDECK engine (librespot Spotify Connect speaker)
 After=pulseaudio.service sound.target network-online.target
 
 [Service]
-ExecStart=@ROOT@/bin/tapedeck-engine
+ExecStart="@ROOT@/bin/tapedeck-engine"
 Restart=on-failure
 RestartSec=5
 
