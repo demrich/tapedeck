@@ -1,5 +1,8 @@
 #!/bin/sh
 # TAPEDECK engine: librespot (Spotify Connect device) -> raw PCM -> PulseAudio.
+# librespot's subprocess backend starts pacat on play and kills it on pause/stop, so no
+# stream stays open while idle: an open (even silent) stream keeps the HDA codec awake and
+# the CPU package out of deep C-states, which costs battery.
 # Player events are appended to $EVENTS as key=value lines; the UI watches it with inotify.
 set -eu
 RUN="${XDG_RUNTIME_DIR:-/tmp}/tapedeck"
@@ -10,7 +13,8 @@ mkdir -p "$RUN" "$CACHE"
 exec "$HOME/.cargo/bin/librespot" \
     --name TAPEDECK \
     --device-type speaker \
-    --backend pipe \
+    --backend subprocess \
+    --device "pacat --raw --format=s16le --rate=44100 --channels=2 --client-name=TAPEDECK --stream-name=TAPEDECK --latency-msec=200" \
     --bitrate "$BITRATE" \
     --cache "$CACHE" \
     --disable-audio-cache \
@@ -19,6 +23,4 @@ exec "$HOME/.cargo/bin/librespot" \
     --initial-volume 70 \
     --enable-volume-normalisation \
     --autoplay on \
-    --onevent "$(dirname "$(readlink -f "$0")")/tapedeck-onevent" \
-  | pacat --raw --format=s16le --rate=44100 --channels=2 \
-          --client-name=TAPEDECK --stream-name=TAPEDECK --latency-msec=200
+    --onevent "$(dirname "$(readlink -f "$0")")/tapedeck-onevent"

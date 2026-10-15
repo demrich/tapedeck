@@ -35,7 +35,7 @@ A Spotify client in the style of a 90s desktop utility (think Win98 CD Player / 
                   VU meters ◄── parec monitor, 8 kHz mono, only while visible+playing
 ```
 
-- **librespot**: a headless Spotify Connect device named "TAPEDECK". It handles login and decoding (`--backend pipe | pacat` (no libpulse-dev needed), `--bitrate 160`, 320 optional). It pushes events to tapedeck through an `--onevent` hook, so tapedeck never polls.
+- **librespot**: a headless Spotify Connect device named "TAPEDECK". It handles login and decoding (`--backend subprocess` running pacat (no libpulse-dev needed); librespot starts pacat on play and kills it on pause/stop, so the sound card can suspend while idle, `--bitrate 160`, 320 optional). It pushes events to tapedeck through an `--onevent` hook, so tapedeck never polls.
 - **tapedeck UI**: one cairo `DrawingArea` for the deck plus a GTK list for the drawer, themed with GTK CSS. The playback position is counted forward locally and resynced on each librespot event.
 - **Spotify Web API**: PKCE OAuth with a personal developer app (no client secret). Tokens go in `~/.config/haven/tapedeck/`. It's used for search, playlists, liked songs, the queue and playback control.
 - **Cache**: `~/.cache/haven/tapedeck/` holds album art downscaled to 64 px and dithered to the deck palette, plus playlist metadata as JSON.

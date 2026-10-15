@@ -57,7 +57,7 @@ Per process, % of one core, sampled from /proc over 20–60 s. The Xorg baseline
 |---|---|
 | UI | 76–78 MB |
 | librespot | 21–24 MB |
-| pacat, parec | 5 MB each |
+| pacat, parec | 5 MB each (pacat only while playing) |
 
 ### Against the targets
 | target | measured | |
