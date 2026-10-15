@@ -2,6 +2,14 @@
 
 Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassette-deck display. Status: **1.0, shipped**: playlists, Liked Songs, search, the queue, artist and album pages, artist radio, album art on the display, spinning reels, real VU meters, MPRIS and media keys, a menu entry and an engine user service. See [PLAN.md](PLAN.md).
 
+![TAPEDECK playing a tape](docs/deck.png)
+
+| Cassettes in the drawer (`E`) | An artist page (`A`) |
+|---|---|
+| ![The drawer open on a playlist](docs/tape.png) | ![An artist page with popular tracks and albums](docs/artist.png) |
+
+<sub>Screenshots use made-up sample music; `tools/screenshots.py` regenerates them.</sub>
+
 ## Setup
 Needs Linux with X11 or Wayland, PulseAudio or PipeWire (`pacat`, `parec`, `pactl`), Python 3 with PyGObject and GTK 3 (Debian/Ubuntu: `python3-gi gir1.2-gtk-3.0 pulseaudio-utils`), a Spotify Premium account, and a free Spotify developer app.
 
