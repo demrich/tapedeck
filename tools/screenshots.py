@@ -1,11 +1,11 @@
-"""Maintainer tool: render the README screenshots into docs/ with made-up sample data.
+"""Maintainer tool: render the README screenshots into docs/ from hardcoded catalog data.
 
-Nothing touches Spotify, the engine or a running TAPEDECK: it uses its own application id,
+Nothing touches your Spotify account, the engine or a running TAPEDECK (only the cover is
+downloaded, like any cover): it uses its own application id,
 fills the widgets directly and draws the window into a PNG. Run it headless under GTK broadway:
 
     broadwayd :7 & GDK_BACKEND=broadway BROADWAY_DISPLAY=:7 python3 tools/screenshots.py; kill %1
 """
-import math
 import os
 import sys
 
@@ -18,92 +18,70 @@ look.prepare()
 import cairo  # noqa: E402
 import gi  # noqa: E402
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 from tapedeck import art, deck  # noqa: E402
-from tapedeck.drawer import heading, nav_item  # noqa: E402
+from tapedeck.drawer import album_item, album_kind, heading, length, nav_item  # noqa: E402
 
 OUT = os.path.join(ROOT, "docs")
-MIN = 60_000
 
-TAPE = "Night Drive"
-TRACKS = [   # title, artist, album, ms
-    ("Neon Overpass", "The Midnight Carriers", "Coastline Static", 4 * MIN + 12_000),
-    ("Chrome Lullaby", "Vera Sol", "Afterglow FM", 3 * MIN + 48_000),
-    ("Polaroid Summer", "Kid Cassette", "Rewind & Play", 3 * MIN + 31_000),
-    ("Signal Lost", "The Midnight Carriers", "Coastline Static", 5 * MIN + 2_000),
-    ("Arcade Rain", "Pixel Harbor", "Insert Coin", 4 * MIN + 40_000),
-    ("Highway 9 (Dub)", "Lowlight Motel", "Vacancy", 6 * MIN + 15_000),
-    ("Satellite Heart", "Vera Sol", "Afterglow FM", 3 * MIN + 57_000),
-    ("Dial Tone Romance", "June Analog", "Party Line", 3 * MIN + 22_000),
-    ("Magnetic North", "Kid Cassette", "Rewind & Play", 4 * MIN + 5_000),
-    ("Slow Fade to Blue", "Lowlight Motel", "Vacancy", 5 * MIN + 33_000),
-    ("Tokyo by Payphone", "Pixel Harbor", "Insert Coin", 3 * MIN + 49_000),
-    ("Last Exit Sunrise", "June Analog", "Party Line", 4 * MIN + 28_000),
+# Real catalog data (Spotify Web API, 2026-10-15), hardcoded so the shots are reproducible offline.
+ARTIST = "Magdalena Bay"
+ALBUM = "Imaginal Disk"
+ALBUM_URI = "spotify:album:2Htq1sHgmdGffojIBM6Q1s"
+COVER = "https://i.scdn.co/image/ab67616d00004851a3390485ba30a0a99feaa0dd"
+TRACKS = [   # Imaginal Disk (2024): title, ms
+    ("She Looked Like Me!", 193186), ("Killing Time", 233546), ("True Blue Interlude", 109226),
+    ("Image", 212866), ("Death & Romance", 314733), ("Fear, Sex", 152053),
+    ("Vampire in the Corner", 202440), ("Watching T.V.", 245413), ("Tunnel Vision", 305520),
+    ("Love Is Everywhere", 194413), ("Feeling DiskInserted?", 58600), ("That's My Floor", 209800),
+    ("Cry for Me", 307266), ("Angel on a Satellite", 243426), ("The Ballad of Matt & Mica", 240000),
 ]
-NOW = 1   # Chrome Lullaby
+NOW = 3      # Image
+POPULAR = [("Killshot", "Killshot", 236363), ("Image", ALBUM, 212866), ("Death & Romance", ALBUM, 314733),
+           ("Killing Time", ALBUM, 233546), ("Fear, Sex", ALBUM, 152053)]
+ALBUMS = [   # name, type, tracks, release date
+    ("Imaginal Disk", "album", 15, "2024-08-23"), ("mini mix vol. 3", "album", 7, "2023-04-13"),
+    ("Mercurial World (Deluxe)", "album", 28, "2022-09-23"), ("Mercurial World", "album", 14, "2021-10-08"),
+    ("mini mix vol. 2", "album", 7, "2020-11-20"), ("A Little Rhythm and a Wicked Feeling", "album", 8, "2020-03-13"),
+    ("mini mix vol. 1", "album", 7, "2019-07-19"),
+    ("This Is The World (I Made It For You) / Nice Day", "single", 2, "2025-11-14"),
+    ("Unoriginal / Black-Eyed Susan Climb", "single", 2, "2025-10-31"),
+    ("Human Happens / Paint Me A Picture", "single", 2, "2025-10-17"),
+]
+SIMILAR = ["Caroline Polachek", "AFTER", "Charli xcx", "Hemlocke Springs"]
 
 
-def rows():
-    return [[t, a, al, ms, f"spotify:track:demo{i}"] for i, (t, a, al, ms) in enumerate(TRACKS)]
+def uri(title):
+    return "spotify:track:" + "".join(c for c in title.lower() if c.isalnum())
 
 
-def cover():
-    """A synthwave sunset, put through the same 52 px web-safe dither as real covers."""
-    s = art.SIZE
-    surf = cairo.ImageSurface(cairo.FORMAT_RGB24, s, s)
-    cr = cairo.Context(surf)
-    sky = cairo.LinearGradient(0, 0, 0, s * 0.62)
-    sky.add_color_stop_rgb(0, 0.10, 0.04, 0.18)
-    sky.add_color_stop_rgb(1, 1.0, 0.44, 0.81)
-    cr.set_source(sky)
-    cr.paint()
-    sun = cairo.LinearGradient(0, s * 0.18, 0, s * 0.62)
-    sun.add_color_stop_rgb(0, 1.0, 0.9, 0.3)
-    sun.add_color_stop_rgb(1, 1.0, 0.3, 0.5)
-    cr.set_source(sun)
-    cr.arc(s / 2, s * 0.62, s * 0.3, math.pi, 0)
-    cr.fill()
-    cr.set_source_rgb(0.10, 0.04, 0.18)
-    for i, y in enumerate((0.40, 0.48, 0.55)):
-        cr.rectangle(0, s * y, s, 1 + i)
-        cr.fill()
-    cr.rectangle(0, s * 0.62, s, s)
-    cr.fill()
-    cr.set_source_rgb(0.0, 0.8, 1.0)
-    cr.set_line_width(1)
-    for k in range(-6, 7):
-        cr.move_to(s / 2 + k * 2, s * 0.62)
-        cr.line_to(s / 2 + k * 14, s)
-    for y in (0.66, 0.72, 0.81, 0.93):
-        cr.move_to(0, s * y)
-        cr.line_to(s, s * y)
-    cr.stroke()
-    pb = Gdk.pixbuf_get_from_surface(surf, 0, 0, s, s)
-    return art.surface(art._dither(pb))
+def album_rows():
+    return [[t, ARTIST, ALBUM, ms, uri(t)] for t, ms in TRACKS]
 
 
-def stage(d, playing=True):
-    title, artist, album, ms = TRACKS[NOW]
+def stage(d):
+    title, ms = TRACKS[NOW]
     t = d.tape
-    t.name, t.artists, t.album, t.uri = title, artist, album, f"spotify:track:demo{NOW}"
-    t.duration_ms, t.mode, t.volume = ms, "play" if playing else "pause", 70
+    t.name, t.artists, t.album, t.uri = title, ARTIST, ALBUM, uri(title)
+    t.duration_ms, t.mode, t.volume = ms, "play", 70
     t.set_pos(83_000)
     t.angles = [0.6, 2.1]
-    t.vu = (0.74, 0.63) if playing else None
-    t.art = cover()
+    t.vu = (0.74, 0.63)
+    t.art = art.surface(art.load(COVER))    # the real cover, through the app's own dither
     d.quiet = True
     d.vol.set_value(70)
     d.quiet = False
     d.set_online(True)
 
 
-def combo(dr, entries, active):
+def combo(dr, page, label):
     dr.combo.handler_block_by_func(dr._on_combo)
     dr.combo.remove_all()
-    for cid, label in entries:
-        dr.combo.append(cid, label)
-    dr.combo.set_active_id(active)
+    for cid, text in [("liked", "Liked Songs"), ("search", "Search Results"), ("queue", "Up Next (queue)"),
+                      (page, "» " + label)]:
+        dr.combo.append(cid, text)
+    dr.combo.set_active_id(page)
     dr.combo.handler_unblock_by_func(dr._on_combo)
 
 
@@ -115,36 +93,35 @@ def shoot(w, name):
     print(name, a.width, "x", a.height)
 
 
-def tape_open(d):
-    dr = d.drawer
-    combo(dr, [("liked", "Liked Songs"), ("search", "Search Results"), ("queue", "Up Next (queue)"),
-               ("demo", TAPE)], "demo")
-    dr._fill(rows())
+def album_page(d):
+    """As Drawer._load_album lays it out."""
+    dr, rows = d.drawer, album_rows()
+    combo(dr, "album:demo", ALBUM)
+    items = [heading("ALBUM · 2024")] + [("track", r) for r in rows]
+    items += [heading("BY"), nav_item("artist", ARTIST, "spotify:artist:1oPRcJUkloHaRLYx0olBLJ", ARTIST)]
+    dr._fill_items(items)
     dr.mark_playing(d.tape.uri, d.tape.name, d.tape.artists)
-    dr.tree.set_cursor(Gtk.TreePath(3), None, False)
-    dr._summary(TAPE)
+    dr.tree.set_cursor(Gtk.TreePath(5), None, False)     # Death & Romance
+    d.say(f"{ALBUM} (2024): {len(rows)} tracks, {length(rows)}")
 
 
 def artist_page(d):
+    """As Drawer._load_artist's build() lays it out."""
     dr = d.drawer
-    combo(dr, [("liked", "Liked Songs"), ("search", "Search Results"), ("queue", "Up Next (queue)"),
-               ("artist:demo", "» Vera Sol"), ("demo", TAPE)], "artist:demo")
-    pop = [r for r in rows() if r[1] == "Vera Sol"] + [
-        ["Paper Moon Radio", "Vera Sol", "Afterglow FM", 4 * MIN + 1_000, "spotify:track:demoA"],
-        ["Velvet Static", "Vera Sol", "Velvet Static", 3 * MIN + 36_000, "spotify:track:demoB"]]
-    dr._fill_items(
-        [heading("Popular", len(pop))] + [("track", r) for r in pop]
-        + [heading("Albums", 2),
-           ("album", "Afterglow FM (1988)", "Vera Sol", "", "spotify:album:a", "Afterglow FM\nAlbum · 1988"),
-           ("album", "Moonlight Switchboard (1986)", "Vera Sol", "", "spotify:album:b", "Album · 1986"),
-           heading("Singles", 1),
-           ("album", "Velvet Static (1989)", "Vera Sol", "", "spotify:album:c", "Single · 1989"),
-           heading("Fans Also Like", 3),
-           nav_item("artist", "June Analog", "spotify:artist:a", "June Analog"),
-           nav_item("artist", "Pixel Harbor", "spotify:artist:b", "Pixel Harbor"),
-           nav_item("radio", "Vera Sol Radio", "radio:demo", "Start radio")])
+    combo(dr, "artist:demo", ARTIST)
+    kinds = {"Album": [], "EP": [], "Single": [], "Compilation": []}
+    for name, typ, n, date in ALBUMS:
+        al = {"name": name, "album_type": typ, "total_tracks": n, "release_date": date,
+              "artists": [{"name": ARTIST}], "uri": "spotify:album:" + uri(name)[14:]}
+        kinds[album_kind(al)].append(album_item(al))
+    popular = [("track", [t, ARTIST, al, ms, uri(t)]) for t, al, ms in POPULAR]
+    items = [nav_item("radio", f"{ARTIST} Radio", ARTIST, f"{ARTIST} Radio")]
+    for head, group in [("POPULAR", popular), ("ALBUMS", kinds["Album"]), ("SINGLES", kinds["Single"]),
+                        ("FANS ALSO LIKE", [nav_item("artist", n, "dz:" + n, n) for n in SIMILAR])]:
+        items += [heading(head, len(group) if head != "POPULAR" else None)] + group
+    dr._fill_items(items)
     dr.mark_playing(d.tape.uri, d.tape.name, d.tape.artists)
-    d.say("Ready")
+    d.say(f"{ARTIST}: {len(kinds['Album'])} albums, {len(kinds['Single'])} singles")
 
 
 class Shots(Gtk.Application):
@@ -159,7 +136,7 @@ class Shots(Gtk.Application):
         w.show_all()
         steps = [
             lambda: shoot(w, "deck.png"),
-            lambda: (w.revealer.set_reveal_child(True), tape_open(w)),
+            lambda: (w.revealer.set_reveal_child(True), album_page(w)),
             lambda: w.drawer.tree.scroll_to_point(-1, 0),
             lambda: shoot(w, "tape.png"),
             lambda: artist_page(w),
