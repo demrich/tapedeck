@@ -3,7 +3,7 @@
 # One line per event: event=<name> then TAB-separated KEY=value pairs.
 # Multi-value fields (ARTISTS, COVERS) arrive newline-separated; they are joined with " | ".
 # The line is built first and appended with a single write, so the UI never reads half an event.
-RUN="${XDG_RUNTIME_DIR:-/tmp}/tapedeck"
+RUN="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/haven/tapedeck/run}/tapedeck"
 TAB=$(printf '\t')
 line="event=${PLAYER_EVENT:-}"
 for v in TRACK_ID URI NAME ARTISTS ALBUM DURATION_MS POSITION_MS VOLUME COVERS; do

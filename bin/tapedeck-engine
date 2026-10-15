@@ -5,12 +5,15 @@
 # the CPU package out of deep C-states, which costs battery.
 # Player events are appended to $EVENTS as key=value lines; the UI watches it with inotify.
 set -eu
-RUN="${XDG_RUNTIME_DIR:-/tmp}/tapedeck"
+# Private run dir: never a shared /tmp path another user could pre-create or symlink.
+RUN="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/haven/tapedeck/run}/tapedeck"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/haven/tapedeck/librespot"
 BITRATE="${TAPEDECK_BITRATE:-160}"
-mkdir -p "$RUN" "$CACHE"
+mkdir -p "$CACHE"
+mkdir -p -m 700 "$RUN"
+LIBRESPOT="${LIBRESPOT:-$(command -v librespot || echo "$HOME/.cargo/bin/librespot")}"
 : > "$RUN/events"
-exec "$HOME/.cargo/bin/librespot" \
+exec "$LIBRESPOT" \
     --name TAPEDECK \
     --device-type speaker \
     --backend subprocess \

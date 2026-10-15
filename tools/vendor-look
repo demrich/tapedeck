@@ -1,0 +1,55 @@
+#!/bin/sh
+# Maintainer tool: copy the TAPEDECK look into share/ from a desktop that has it installed.
+# The app loads share/ at startup (tapedeck/look.py), so every install looks the same no matter
+# which GTK theme, icon theme or fonts the user's desktop has. Rerun after a theme update.
+#   GTK theme  IndigoMagic (gtk-3.0 only)       -> share/themes/TAPEDECK-IndigoMagic
+#   icons      SE98, only the names listed here -> share/icons/TAPEDECK-SE98
+#   fonts      VT323 (LCD), Fira Code (UI)      -> share/fonts
+set -eu
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+GTK_SRC="${GTK_SRC:-$HOME/.local/share/themes/IndigoMagic/gtk-3.0}"
+ICON_SRC="${ICON_SRC:-$HOME/.icons/SE98}"
+VT323="${VT323:-$HOME/haven/shared/fonts}"
+FIRA="${FIRA:-$HOME/.local/share/fonts/FiraCode}"
+OUT="$HERE/share"
+
+# Every icon the app asks for, plus the ones GTK's own widgets use (expanders, entries, dialogs).
+ICONS="multimedia-player
+media-skip-backward media-seek-backward media-playback-start media-playback-pause
+media-playback-stop media-seek-forward media-skip-forward media-eject
+audio-volume-high audio-volume-medium audio-volume-low audio-volume-muted
+go-previous go-next edit-find edit-clear window-close
+dialog-information dialog-error dialog-warning dialog-question image-missing
+pan-down-symbolic pan-up-symbolic pan-start-symbolic pan-end-symbolic
+edit-clear-symbolic edit-find-symbolic window-close-symbolic open-menu-symbolic
+list-add-symbolic list-remove-symbolic"
+
+rm -rf "$OUT/themes" "$OUT/icons" "$OUT/fonts"
+mkdir -p "$OUT/themes/TAPEDECK-IndigoMagic" "$OUT/icons/TAPEDECK-SE98" "$OUT/fonts"
+
+cp -rL "$GTK_SRC" "$OUT/themes/TAPEDECK-IndigoMagic/gtk-3.0"
+
+dirs=""
+for name in $ICONS; do
+  for f in "$ICON_SRC"/*/*/"$name.png" "$ICON_SRC"/*/*/"$name.symbolic.png"; do
+    [ -e "$f" ] || continue
+    rel="${f#"$ICON_SRC"/}"
+    d="${rel%/*}"
+    mkdir -p "$OUT/icons/TAPEDECK-SE98/$d"
+    cp -L "$f" "$OUT/icons/TAPEDECK-SE98/$d/"
+    case " $dirs " in *" $d "*) ;; *) dirs="$dirs $d" ;; esac
+  done
+done
+dirs=$(printf '%s\n' $dirs | sort -t/ -k1,1 -k2,2n)
+{
+  printf '[Icon Theme]\nName=TAPEDECK-SE98\nComment=The SE98 icons TAPEDECK uses (subset of SE98, GPL-2.0)\n'
+  printf 'Inherits=hicolor\nDirectories=%s\n' "$(printf '%s\n' $dirs | paste -sd, -)"
+  for d in $dirs; do
+    printf '\n[%s]\n' "$d"
+    awk -v s="[$d]" '$0 == s {on=1; next} /^\[/ {on=0} on && NF' "$ICON_SRC/index.theme"
+  done
+} > "$OUT/icons/TAPEDECK-SE98/index.theme"
+
+cp "$VT323/VT323-Regular.ttf" "$VT323/VT323-OFL.txt" "$OUT/fonts/"
+cp "$FIRA/FiraCode-Regular.ttf" "$FIRA/FiraCode-Bold.ttf" "$OUT/fonts/"
+echo "vendored: $(find "$OUT" -type f | wc -l) files, $(du -sh "$OUT" | cut -f1)"

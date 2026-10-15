@@ -3,10 +3,15 @@
 Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassette-deck display. Status: **1.0, shipped**: playlists, Liked Songs, search, the queue, artist and album pages, artist radio, album art on the display, spinning reels, real VU meters, MPRIS and media keys, a menu entry and an engine user service. See [PLAN.md](PLAN.md).
 
 ## Setup
-1. librespot: `cargo install librespot --version 0.8.0 --locked --no-default-features --features rustls-tls-native-roots`
+Needs Linux with X11 or Wayland, PulseAudio or PipeWire (`pacat`, `parec`, `pactl`), Python 3 with PyGObject and GTK 3 (Debian/Ubuntu: `python3-gi gir1.2-gtk-3.0 pulseaudio-utils`), a Spotify Premium account, and a free Spotify developer app.
+
+1. librespot: `cargo install librespot --version 0.8.0 --locked --no-default-features --features rustls-tls-native-roots` (looked up on `PATH`, then `~/.cargo/bin`; or set `LIBRESPOT=/path/to/librespot`)
 2. Spotify developer app with redirect URI `http://127.0.0.1:8898/callback`, then `python3 -m tapedeck.cli setup <client_id>` and `python3 -m tapedeck.cli login`
 3. First engine run: `bin/tapedeck-engine` once in a terminal (it opens the browser for librespot's own login), then Ctrl+C
-4. `bin/tapedeck-install`: the menu entry, the engine's systemd user service (`systemd/tapedeck-engine.service`, symlinked into `~/.config/systemd/user/`) and the VT323 font
+4. `bin/tapedeck-install`: the menu entry and icon, and the engine's systemd user service. Everything stays in your home directory. Run it again after moving the folder; `bin/tapedeck-install --uninstall` removes it all.
+
+## Look
+TAPEDECK brings its own look, so it's the same on every desktop: the **IndigoMagic** GTK theme (SGI IRIX), the **SE98** icons (Windows 98 SE), **Fira Code** for the UI and **VT323** for the display. They live in `share/` and are loaded only by TAPEDECK, so nothing is installed and the rest of your desktop is untouched. The window frame still comes from your window manager. `TAPEDECK_SYSTEM_THEME=1` makes it use your desktop theme instead. (Maintainers: `tools/vendor-look` refreshes `share/` from an installed copy of the theme.)
 
 ## Run
 **TAPEDECK** in the XFCE menu (Multimedia), or `bin/tapedeck`. The deck starts the engine service (`systemctl --user start tapedeck-engine`) if it isn't running and stops it again on exit. The Connect device is online about 2.7 s after launch. The service restarts librespot if it crashes, and its log is `journalctl --user -u tapedeck-engine`. Without the service installed, the deck runs `bin/tapedeck-engine` itself and logs to `$XDG_RUNTIME_DIR/tapedeck/engine.log`.
@@ -14,8 +19,6 @@ Spotify client for HAVEN, in the style of a Win98 desktop utility with a cassett
 To keep TAPEDECK available as a Spotify Connect speaker from login (to cast from a phone with the deck closed): `systemctl --user enable --now tapedeck-engine`. Idle, it costs about 24 MB and 0 % CPU. An engine the deck didn't start is left running when the deck exits.
 
 Closing the window docks the deck in the panel's systray and the music keeps playing. Hidden there it costs the same as minimized (~1 % CPU). Left-click the tray icon to show or hide the deck, right-click for play/pause, next, previous and Exit; hover shows the current track. Only Exit (or `Ctrl+Q`) quits. Without a systray, closing quits.
-
-The LCD uses the VT323 pixel font from `~/haven/shared/fonts/` (installed into `~/.local/share/fonts/`).
 
 ## Keys
 `Space` play/pause · `S` stop · `H`/`L` previous/next · `Shift+H`/`Shift+L` seek ±10 s · `+`/`-` volume · `E` eject (drawer) · `/` search · `Enter` play selected / open page · `Q` queue selected · `A`/`B` artist / album page · `R` radio · `Backspace` (or `Alt+Left`) back · `Esc` leave search · `?` keyboard card · `Ctrl+Q` exit
@@ -32,7 +35,7 @@ Spotify withholds top tracks, related artists, recommendations and radio (`spoti
 - The display renders into a client-side image, and animation frames redraw only the reels and meter bars. Drawing straight to the window made Xorg rasterize every arc.
 
 ## Media keys and MPRIS
-TAPEDECK is an MPRIS player (`org.mpris.MediaPlayer2.tapedeck`). Media keys, Bluetooth headphone buttons (through `mpris-proxy`) and MPRIS applets see the track, cover and position, and can play, pause, skip, seek and set the volume. The MacBook's F7/F8/F9 (XF86AudioPrev/Play/Next, plus Stop) are bound in xfce4-keyboard-shortcuts to `bin/tapedeck-key`, which sends to TAPEDECK, or to another MPRIS player when TAPEDECK isn't running. The shortcuts file from before the binding is backed up in `~/.local/share/xfce-keys-backup/`.
+TAPEDECK is an MPRIS player (`org.mpris.MediaPlayer2.tapedeck`). Media keys, Bluetooth headphone buttons (through `mpris-proxy`) and MPRIS applets see the track, cover and position, and can play, pause, skip, seek and set the volume. If your desktop doesn't route media keys to MPRIS, bind XF86AudioPlay/Next/Prev/Stop to `bin/tapedeck-key PlayPause|Next|Previous|Stop`: it sends to TAPEDECK, or to another MPRIS player when TAPEDECK isn't running.
 
 ## Remote control
 D-Bus actions for hotkeys and scripts: `play-pause next previous stop eject artist album radio`, e.g.
@@ -72,3 +75,9 @@ Animation is the expensive part: almost all of it is GTK's per-frame overhead an
 
 Earlier milestones (for comparison): UI 0.3–0.56 % playing without animation (0.3–0.4); librespot ~1.0 %; the window maps 0.7 s after launch.
 
+
+## Credits
+- IndigoMagic GTK theme, based on OneStepBack by Dave Maldonado: GPL-3.0 (`share/themes/TAPEDECK-IndigoMagic/COPYING`)
+- SE98 icons by nestoris (github.com/nestoris/Win98SE): GPL-2.0 (`share/icons/TAPEDECK-SE98/COPYING`)
+- Fira Code (github.com/tonsky/FiraCode) and VT323 (Peter Hull): SIL Open Font License 1.1 (`share/fonts/`)
+- librespot (separate install): MIT

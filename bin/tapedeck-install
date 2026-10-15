@@ -1,17 +1,36 @@
 #!/bin/sh
-# Install TAPEDECK for this user: menu entry, engine user service, LCD font.
+# Install TAPEDECK for this user: menu entry + icon, and the engine's systemd user service.
+# Nothing goes outside your home directory, and nothing is installed system-wide.
+# The theme, icons and fonts stay inside the app (share/) and are loaded only by TAPEDECK.
+#   bin/tapedeck-install              install, or update after moving the folder
+#   bin/tapedeck-install --uninstall  remove all of the above (your login and cache stay)
 set -eu
 HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+APPS="$DATA/applications"
+ICONS="$DATA/icons/hicolor"
 UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-FONTS="${XDG_DATA_HOME:-$HOME/.local/share}/fonts"
-mkdir -p "$APPS" "$UNITS" "$FONTS"
-sed "s|^Exec=.*|Exec=$HERE/bin/tapedeck|" "$HERE/tapedeck.desktop" > "$APPS/tapedeck.desktop"
-ln -sf "$HERE/systemd/tapedeck-engine.service" "$UNITS/tapedeck-engine.service"
-systemctl --user daemon-reload
-for f in "$HERE"/../../shared/fonts/VT323*.ttf; do
-  [ -e "$f" ] && cp -u "$f" "$FONTS/"
+SIZES="16 22 24 32 48"
+
+if [ "${1:-}" = "--uninstall" ]; then
+  systemctl --user disable --now tapedeck-engine.service 2>/dev/null || true
+  rm -f "$UNITS/tapedeck-engine.service" "$APPS/tapedeck.desktop"
+  for s in $SIZES; do rm -f "$ICONS/${s}x$s/apps/tapedeck.png"; done
+  systemctl --user daemon-reload
+  echo "uninstalled. Login and cache are in ~/.config/haven/tapedeck and ~/.cache/haven/tapedeck"
+  exit 0
+fi
+
+mkdir -p "$APPS" "$UNITS"
+sed "s|^Exec=.*|Exec=\"$HERE/bin/tapedeck\"|" "$HERE/tapedeck.desktop" > "$APPS/tapedeck.desktop"
+for s in $SIZES; do
+  mkdir -p "$ICONS/${s}x$s/apps"
+  cp "$HERE/share/icons/TAPEDECK-SE98/devices/$s/multimedia-player.png" "$ICONS/${s}x$s/apps/tapedeck.png"
 done
-fc-cache -f "$FONTS" >/dev/null 2>&1 || true
+# a real file, not a link into the app: the unit is a template (@ROOT@ = this folder)
+rm -f "$UNITS/tapedeck-engine.service"
+sed "s|@ROOT@|$HERE|g" "$HERE/systemd/tapedeck-engine.service" > "$UNITS/tapedeck-engine.service"
+systemctl --user daemon-reload
+gtk-update-icon-cache -q -t "$ICONS" >/dev/null 2>&1 || true
 update-desktop-database "$APPS" >/dev/null 2>&1 || true
-echo "installed: menu entry, tapedeck-engine.service (start on demand; 'systemctl --user enable tapedeck-engine' to run from login)"
+echo "installed: menu entry, icon, tapedeck-engine.service (start on demand; 'systemctl --user enable tapedeck-engine' to run from login)"

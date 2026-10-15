@@ -49,6 +49,8 @@ def _dither(pb):
 
 def load(url):
     """Worker thread: the dithered cover as a GdkPixbuf (from the cache, or downloaded once)."""
+    if not url.startswith("https://"):   # covers come from Spotify's CDN; never file:// or plain http
+        raise ValueError("cover URL must be https")
     path = _path(url)
     if not os.path.exists(path):
         with urllib.request.urlopen(url, timeout=15) as r:

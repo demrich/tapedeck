@@ -1,4 +1,4 @@
-"""TAPEDECK main window: stock GTK chrome (inherits the system theme) around the cairo deck display.
+"""TAPEDECK main window: stock GTK chrome (styled by the bundled theme, see look.py) around the cairo deck display.
 
 Event-driven: librespot appends player events to $XDG_RUNTIME_DIR/tapedeck/events, which is
 watched with inotify (GFileMonitor). The Web API is only called on user actions, from
@@ -20,14 +20,16 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import art, display, mpris, spotify, tray, vu
+from . import art, display, look, mpris, spotify, tray, vu
 from .drawer import Drawer
 
 VERSION = "1.0"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(ROOT, "bin", "tapedeck-engine")
 UNIT = "tapedeck-engine.service"     # bin/tapedeck-install links it into ~/.config/systemd/user
-RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "tapedeck")
+RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR")      # never a shared /tmp path (see bin/tapedeck-engine)
+                       or os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
+                                       "haven", "tapedeck", "run"), "tapedeck")
 EVENTS = os.path.join(RUN_DIR, "events")
 BITRATE = os.environ.get("TAPEDECK_BITRATE", "160")
 DEVICE = "TAPEDECK"
@@ -372,7 +374,7 @@ class Deck(Gtk.ApplicationWindow):
 
     # --- engine + events ---------------------------------------------------
     def boot(self):
-        os.makedirs(RUN_DIR, exist_ok=True)
+        os.makedirs(RUN_DIR, mode=0o700, exist_ok=True)
         if not os.path.exists(EVENTS):
             open(EVENTS, "a").close()
         if engine_running():
@@ -747,4 +749,5 @@ def main():
     GLib.set_prgname("tapedeck")
     Gdk.set_program_class("Tapedeck")
     GLib.set_application_name("TAPEDECK")
+    look.apply()
     return App().run(None)
