@@ -76,6 +76,9 @@ Animation is the expensive part: almost all of it is GTK's per-frame overhead an
 Earlier milestones (for comparison): UI 0.3–0.56 % playing without animation (0.3–0.4); librespot ~1.0 %; the window maps 0.7 s after launch.
 
 
+## License
+TAPEDECK is free software under the GNU General Public License v3.0 or later ([LICENSE](LICENSE)). Fork it, change it, share it.
+
 ## Credits
 - IndigoMagic GTK theme, based on OneStepBack by Dave Maldonado: GPL-3.0 (`share/themes/TAPEDECK-IndigoMagic/COPYING`)
 - SE98 icons by nestoris (github.com/nestoris/Win98SE): GPL-2.0 (`share/icons/TAPEDECK-SE98/COPYING`)
