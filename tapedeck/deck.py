@@ -740,7 +740,8 @@ class App(Gtk.Application):
             return
         self.win = Deck(self)
         self.win.mpris = mpris.Mpris(self.win, self.get_dbus_connection())
-        self.win.tray = tray.Tray(self.win)
+        if type(Gdk.Display.get_default()).__name__ == "X11Display":   # XEmbed tray: X11 only
+            self.win.tray = tray.Tray(self.win)
         self.win.show_all()
         GLib.idle_add(self.win.boot)   # first paint before any process spawns or file reads
 
